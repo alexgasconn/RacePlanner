@@ -1,4 +1,4 @@
-import React, { ChangeEvent, useState } from 'react';
+import React, { ChangeEvent, useState, useEffect } from 'react';
 import { UploadCloud, FolderOpen, ChevronDown, CheckCircle2 } from 'lucide-react';
 
 interface FileUploadProps {
@@ -21,6 +21,59 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessing }) =
   const [selectedSample, setSelectedSample] = useState('');
   const [loadingSample, setLoadingSample] = useState(false);
 
+  // --- NEW: auto-load first existing file from /data/ on mount ---
+  useEffect(() => {
+    if (isProcessing) return;
+    let cancelled = false;
+
+    (async () => {
+      for (const route of SAMPLE_ROUTES) {
+        const filename = route.file;
+        const candidates = [
+          `/data/${encodeURIComponent(filename)}`,
+          `${window.location.origin}/data/${encodeURIComponent(filename)}`,
+          `${process.env.PUBLIC_URL || ''}/data/${encodeURIComponent(filename)}`,
+          `./data/${encodeURIComponent(filename)}`
+        ];
+        for (const url of candidates) {
+          try {
+            // use HEAD first to quickly check existence (some hosts may not allow HEAD)
+            const headResp = await fetch(url, { method: 'HEAD' });
+            if (!headResp.ok) {
+              // try GET directly if HEAD not allowed or not ok
+              const getResp = await fetch(url);
+              if (!getResp.ok) continue;
+              const blob = await getResp.blob();
+              if (cancelled) return;
+              const mime = blob.type || 'application/gpx+xml';
+              const file = new File([blob], filename, { type: mime });
+              setSelectedSample(filename);
+              onFileSelect(file);
+              return;
+            } else {
+              // HEAD ok -> fetch the blob
+              const resp = await fetch(url);
+              if (!resp.ok) continue;
+              const blob = await resp.blob();
+              if (cancelled) return;
+              const mime = blob.type || 'application/gpx+xml';
+              const file = new File([blob], filename, { type: mime });
+              setSelectedSample(filename);
+              onFileSelect(file);
+              return;
+            }
+          } catch (err) {
+            // try next candidate
+            continue;
+          }
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [onFileSelect, isProcessing]);
+  // --- END NEW ---
+
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       onFileSelect(e.target.files[0]);
@@ -30,9 +83,8 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessing }) =
   const handleSampleLoad = async () => {
     if (!selectedSample) return;
     setLoadingSample(true);
-
     try {
-      // try several possible URLs where the /data/ folder might be served from
+      // existing candidate-fetch logic (kept for manual loads)
       const candidates = [
         `/data/${encodeURIComponent(selectedSample)}`,
         `${window.location.origin}/data/${encodeURIComponent(selectedSample)}`,
@@ -48,14 +100,12 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessing }) =
           blob = await response.blob();
           break;
         } catch (err) {
-          // try next candidate
           continue;
         }
       }
 
       if (!blob) throw new Error('File not found in any candidate path');
 
-      // fallback to a sensible mime if server doesn't provide one
       const mime = blob.type || 'application/gpx+xml';
       const file = new File([blob], selectedSample, { type: mime });
       onFileSelect(file);

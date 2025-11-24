@@ -1,0 +1,5 @@
+{
+  "name": "Elevate - GPX Sector Analyzer",
+  "description": "Analyze GPX files by splitting tracks into 500m sectors to visualize elevation gain/loss and receive AI-powered route insights.",
+  "requestFramePermissions": []
+}

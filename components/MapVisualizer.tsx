@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef } from 'react';
 import * as L from 'leaflet';
 import { PlannedSector, MapMetric, UnitSystem, GPXPoint } from '../types';
@@ -53,11 +54,16 @@ const MapVisualizer: React.FC<MapVisualizerProps> = ({
          if (bank > 0) return '#22c55e'; // Ahead
          if (bank > -60) return '#f97316'; // Slightly Behind
          return '#ef4444'; // Behind
+      
+      case 'fatigue':
+         const f = sector.fatigueLevel;
+         if (f < 20) return '#4ade80'; // Fresh (Green)
+         if (f < 40) return '#22c55e'; // Good
+         if (f < 60) return '#eab308'; // Moderate (Yellow)
+         if (f < 80) return '#f97316'; // Tired (Orange)
+         return '#9333ea'; // Exhausted (Purple)
 
       case 'elevation':
-        // Relative to max/min of course? 
-        // We'll just map high to Orange, low to Purple
-        // This requires knowledge of min/max ele. simplified:
         return '#a855f7'; 
 
       default:
@@ -89,6 +95,15 @@ const MapVisualizer: React.FC<MapVisualizerProps> = ({
     L.control.attribution({ position: 'bottomright' }).addTo(map);
 
     mapInstance.current = map;
+
+    // FIX: Map sometimes doesn't render tiles correctly if container size changes slightly after mount
+    // Double invalidate strategy to catch layout shifts
+    setTimeout(() => {
+        map.invalidateSize();
+    }, 200);
+    setTimeout(() => {
+        map.invalidateSize();
+    }, 500);
 
     return () => {
       if (mapInstance.current) {
@@ -144,9 +159,9 @@ const MapVisualizer: React.FC<MapVisualizerProps> = ({
         polylinesRef.current.push(polyline);
     });
     
-    // Fit bounds once on load
+    // Fit bounds once on load with GENEROUS padding to see full route
     if (polylinesRef.current.length > 0) {
-        map.fitBounds(bounds, { padding: [20, 20] });
+        map.fitBounds(bounds, { padding: [50, 50], animate: true });
     }
 
   }, [sectors, activeMetric, avgPaceSeconds]); 
@@ -223,6 +238,13 @@ const MapVisualizer: React.FC<MapVisualizerProps> = ({
                         <div className="flex items-center gap-2"><div className="w-3 h-3 bg-green-500 rounded-full"></div> <span>Ahead (Banked)</span></div>
                         <div className="flex items-center gap-2"><div className="w-3 h-3 bg-orange-500 rounded-full"></div> <span>On Track</span></div>
                         <div className="flex items-center gap-2"><div className="w-3 h-3 bg-red-500 rounded-full"></div> <span>Behind</span></div>
+                     </>
+                 )}
+                 {activeMetric === 'fatigue' && (
+                     <>
+                        <div className="flex items-center gap-2"><div className="w-3 h-3 bg-green-500 rounded-full"></div> <span>Fresh (0-40%)</span></div>
+                        <div className="flex items-center gap-2"><div className="w-3 h-3 bg-yellow-500 rounded-full"></div> <span>Tired (40-60%)</span></div>
+                        <div className="flex items-center gap-2"><div className="w-3 h-3 bg-purple-600 rounded-full"></div> <span>Exhausted (80%+)</span></div>
                      </>
                  )}
              </div>

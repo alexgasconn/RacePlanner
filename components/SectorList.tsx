@@ -1,6 +1,7 @@
+
 import React, { useState, useMemo } from 'react';
 import { PlannedSector, UnitSystem } from '../types';
-import { ArrowUpRight, ArrowDownRight, Minus, ArrowRight, ChevronUp, ChevronDown, ChevronsUpDown, Droplets } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, Minus, ArrowRight, ChevronUp, ChevronDown, ChevronsUpDown, Droplets, Battery, BatteryWarning, BatteryCharging } from 'lucide-react';
 import { formatDuration } from '../utils/geoUtils';
 import { formatDistance, formatElevation, formatPace } from '../utils/unitUtils';
 
@@ -9,7 +10,7 @@ interface SectorListProps {
   units: UnitSystem;
 }
 
-type SortKey = 'id' | 'dist' | 'gain' | 'loss' | 'combined' | 'grade' | 'time' | 'pace' | 'accum';
+type SortKey = 'id' | 'dist' | 'gain' | 'loss' | 'grade' | 'time' | 'pace' | 'accum' | 'fatigue';
 
 const SectorList: React.FC<SectorListProps> = ({ sectors, units }) => {
   const [sortKey, setSortKey] = useState<SortKey>('id');
@@ -27,6 +28,13 @@ const SectorList: React.FC<SectorListProps> = ({ sectors, units }) => {
     if (grad > 1) return <ArrowUpRight className="w-5 h-5 mr-1" />;
     if (grad < -1) return <ArrowDownRight className="w-5 h-5 mr-1" />;
     return <Minus className="w-5 h-5 mr-1" />;
+  };
+
+  const getFatigueColor = (level: number) => {
+      if (level < 30) return 'bg-emerald-500';
+      if (level < 60) return 'bg-yellow-500';
+      if (level < 85) return 'bg-orange-500';
+      return 'bg-purple-600';
   };
 
   const handleSort = (key: SortKey) => {
@@ -48,11 +56,11 @@ const SectorList: React.FC<SectorListProps> = ({ sectors, units }) => {
         case 'dist': valA = a.startDist; valB = b.startDist; break;
         case 'gain': valA = a.elevationGain; valB = b.elevationGain; break;
         case 'loss': valA = a.elevationLoss; valB = b.elevationLoss; break;
-        case 'combined': valA = a.combinedElevationChange; valB = b.combinedElevationChange; break;
         case 'grade': valA = a.avgGradient; valB = b.avgGradient; break;
         case 'time': valA = a.targetDurationSeconds; valB = b.targetDurationSeconds; break;
         case 'pace': valA = a.targetPaceSeconds; valB = b.targetPaceSeconds; break;
         case 'accum': valA = a.accumulatedTimeSeconds; valB = b.accumulatedTimeSeconds; break;
+        case 'fatigue': valA = a.fatigueLevel; valB = b.fatigueLevel; break;
         default: valA = a.id; valB = b.id;
       }
 
@@ -89,6 +97,7 @@ const SectorList: React.FC<SectorListProps> = ({ sectors, units }) => {
               <SortHeader label="Gain" id="gain" />
               <SortHeader label="Loss" id="loss" />
               <SortHeader label="Grade" id="grade" />
+              <SortHeader label="Fatigue" id="fatigue" align="left"/>
               <SortHeader label="Time" id="time" />
               <SortHeader label="Pace" id="pace" />
               <SortHeader label="Accum" id="accum" />
@@ -131,6 +140,23 @@ const SectorList: React.FC<SectorListProps> = ({ sectors, units }) => {
                     {getGradientIcon(sector.avgGradient)}
                     {Math.abs(sector.avgGradient).toFixed(1)}%
                   </div>
+                </td>
+
+                <td className="px-6 py-5">
+                   <div className="flex flex-col gap-1 w-24">
+                       <div className="flex items-center justify-between text-xs text-slate-400">
+                           {sector.fatigueLevel < 30 ? <BatteryCharging className="w-3 h-3 text-emerald-500"/> : 
+                            sector.fatigueLevel > 80 ? <BatteryWarning className="w-3 h-3 text-purple-500"/> : 
+                            <Battery className="w-3 h-3"/> }
+                           <span>{Math.round(sector.fatigueLevel)}%</span>
+                       </div>
+                       <div className="w-full h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                           <div 
+                              className={`h-full rounded-full ${getFatigueColor(sector.fatigueLevel)}`} 
+                              style={{ width: `${Math.max(5, sector.fatigueLevel)}%` }}
+                           />
+                       </div>
+                   </div>
                 </td>
 
                 <td className="px-6 py-5 text-right font-mono text-blue-100 text-xl font-medium">

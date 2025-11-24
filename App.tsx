@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback } from 'react';
 import { Activity, Mountain, TrendingUp, RefreshCw, AlertCircle, Map as MapIcon, Zap, CloudSun, Layers } from 'lucide-react';
 import FileUpload from './components/FileUpload';
@@ -109,10 +110,9 @@ const App: React.FC = () => {
             <div className="bg-gradient-to-tr from-blue-600 to-indigo-600 p-2 rounded-lg shadow-lg shadow-blue-900/50">
               <Activity className="text-white w-5 h-5" />
             </div>
-            <h1 className="text-xl font-bold tracking-tight text-white hidden sm:block">
-              Elevate <span className="text-slate-500 font-normal border-l border-slate-700 pl-3 ml-3">Race Planner</span>
+            <h1 className="text-xl font-bold tracking-tight text-white">
+              Race Planner Pro
             </h1>
-            <h1 className="text-xl font-bold tracking-tight text-white sm:hidden">Elevate</h1>
           </div>
           {data && status !== AnalysisStatus.TIME_SELECTION && (
             <button 
@@ -264,6 +264,7 @@ const App: React.FC = () => {
                           <option className="bg-slate-900 text-white" value="gradient">Gradient</option>
                           <option className="bg-slate-900 text-white" value="pace">Target Pace</option>
                           <option className="bg-slate-900 text-white" value="bank">Time Bank</option>
+                          <option className="bg-slate-900 text-white" value="fatigue">Fatigue (Physio)</option>
                       </select>
                    </div>
                    <MapVisualizer 
@@ -294,7 +295,8 @@ const App: React.FC = () => {
                       <TrendingUp className="w-4 h-4" /> Gradient Distribution
                     </h4>
                     <div className="flex-1 min-h-0">
-                      <GradientDistributionChart sectors={data.plan} units={data.units} />
+                      {/* We pass rawData now to allow dynamic sampling */}
+                      <GradientDistributionChart rawData={data.rawPoints} units={data.units} />
                     </div>
                  </div>
 

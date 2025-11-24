@@ -1,4 +1,5 @@
-import React from 'react';
+
+import React, { useMemo } from 'react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   BarChart, Bar, Cell, ComposedChart, Line, ReferenceLine, ReferenceDot
@@ -234,45 +235,97 @@ export const PaceStrategyChart: React.FC<ChartProps> = ({ sectors, units }) => {
   );
 };
 
-export const GradientDistributionChart: React.FC<ChartProps> = ({ sectors }) => {
-  if (!sectors) return null;
-  const gradients = sectors.map(s => s.avgGradient);
-  const minG = Math.floor(Math.min(...gradients));
-  const maxG = Math.ceil(Math.max(...gradients));
-  
-  let binSize = 1;
-  const range = maxG - minG;
-  if (range < 5) binSize = 0.5;
-  if (range > 20) binSize = 2;
+export const GradientDistributionChart: React.FC<ChartProps> = ({ rawData }) => {
+  // Use useMemo to prevent recalculation on every render
+  const data = useMemo(() => {
+    if (!rawData || rawData.length < 2) return [];
 
-  const bins: Record<string, { label: string, count: number, min: number, color: string }> = {};
-  
-  for (let i = Math.floor(minG / binSize) * binSize; i < maxG; i += binSize) {
-      const label = `${i.toFixed(1)}%`;
-      bins[label] = { 
-          label, 
-          count: 0, 
-          min: i,
-          color: getGradientColor(i + binSize/2)
-      };
-  }
+    // CONSTANTS for resolution
+    const SAMPLE_DIST_METERS = 100; // Sample every 100m for true terrain feel
+    
+    // 1. Generate Micro-Gradients from raw points
+    const gradients: number[] = [];
+    
+    // We walk the track in 100m steps.
+    const totalDist = rawData[rawData.length - 1].distFromStart;
+    
+    // Function to find point at distance (simplified version of geoUtils logic for perf here)
+    // We assume points are sorted.
+    let lastIdx = 0;
+    const findEleAt = (targetDist: number): number | null => {
+        for(let i = lastIdx; i < rawData.length - 1; i++) {
+            if (rawData[i].distFromStart <= targetDist && rawData[i+1].distFromStart >= targetDist) {
+                // interpolate
+                const p1 = rawData[i];
+                const p2 = rawData[i+1];
+                const segmentLen = p2.distFromStart - p1.distFromStart;
+                if (segmentLen === 0) return p1.ele;
+                const ratio = (targetDist - p1.distFromStart) / segmentLen;
+                lastIdx = i; // Optimization
+                return p1.ele + (p2.ele - p1.ele) * ratio;
+            }
+        }
+        return null;
+    };
 
-  sectors.forEach(s => {
-      const binStart = Math.floor(s.avgGradient / binSize) * binSize;
-      const label = `${binStart.toFixed(1)}%`;
-      if (bins[label]) bins[label].count++;
-  });
+    for(let d = 0; d < totalDist - SAMPLE_DIST_METERS; d += SAMPLE_DIST_METERS) {
+        const ele1 = findEleAt(d);
+        const ele2 = findEleAt(d + SAMPLE_DIST_METERS);
+        
+        if (ele1 !== null && ele2 !== null) {
+            const gain = ele2 - ele1;
+            const grad = (gain / SAMPLE_DIST_METERS) * 100;
+            gradients.push(grad);
+        }
+    }
 
-  const data = Object.values(bins)
-    .filter(b => b.count > 0)
-    .sort((a, b) => a.min - b.min);
+    if (gradients.length === 0) return [];
+
+    // 2. Bin the data
+    const minG = Math.floor(Math.min(...gradients));
+    const maxG = Math.ceil(Math.max(...gradients));
+    
+    let binSize = 1;
+    const range = maxG - minG;
+    if (range < 5) binSize = 0.5;
+    if (range > 25) binSize = 2;
+
+    const bins: Record<string, { label: string, count: number, min: number, color: string }> = {};
+    
+    // Initialize buckets
+    for (let i = Math.floor(minG / binSize) * binSize; i < maxG; i += binSize) {
+        const label = `${i.toFixed(1)}%`;
+        bins[label] = { 
+            label, 
+            count: 0, 
+            min: i,
+            color: getGradientColor(i + binSize/2)
+        };
+    }
+
+    // Fill buckets
+    gradients.forEach(g => {
+        const binStart = Math.floor(g / binSize) * binSize;
+        const label = `${binStart.toFixed(1)}%`;
+        if (bins[label]) bins[label].count++;
+    });
+
+    // Convert to array
+    return Object.values(bins)
+      .filter(b => b.count > 0)
+      .sort((a, b) => a.min - b.min);
+  }, [rawData]);
+
+  if (data.length === 0) return null;
 
   return (
     <div className="h-64 w-full">
       <ResponsiveContainer width="100%" height="100%">
+        {/* Margin 0 on bottom to extend to edge */}
         <BarChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }} barCategoryGap="15%">
           <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
-          <XAxis dataKey="label" stroke="#94a3b8" fontSize={10} interval={0} tickLine={false} axisLine={false} />
+          {/* XAxis height={20} ensures it doesn't take up too much padding, labels kept small */}
+          <XAxis dataKey="label" stroke="#94a3b8" fontSize={10} interval={0} tickLine={false} axisLine={false} height={20} />
           <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false}/>
           <Tooltip 
             cursor={{fill: '#334155', opacity: 0.2}}
@@ -305,7 +358,8 @@ export const PaceVarianceChart: React.FC<ChartProps> = ({ sectors, avgPaceSecond
         <BarChart 
           data={data} 
           margin={{ top: 5, right: 0, left: -10, bottom: 0 }}
-          barCategoryGap="10%" // Thicker bars
+          barCategoryGap={0} // Maximize width (touching bars)
+          barGap={0}
         >
            <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
            <XAxis 
@@ -314,7 +368,7 @@ export const PaceVarianceChart: React.FC<ChartProps> = ({ sectors, avgPaceSecond
             domain={['dataMin', 'dataMax']}
             stroke="#94a3b8" 
             tick={{fontSize: 10}} 
-            tickCount={10} // Explicit tick count to avoid 3.5 jumps if possible
+            tickCount={10} 
             interval="preserveStartEnd"
             tickLine={false}
             axisLine={false}
@@ -331,10 +385,18 @@ export const PaceVarianceChart: React.FC<ChartProps> = ({ sectors, avgPaceSecond
               formatter={(val: number) => [`${Math.abs(Math.round(val))}s ${val > 0 ? 'slower' : 'faster'}`, 'Vs Avg']}
            />
            <ReferenceLine y={0} stroke="#cbd5e1" strokeWidth={1} />
-           <Bar dataKey="variance">
-             {data.map((entry, index) => (
-               <Cell key={`cell-${index}`} fill={entry.variance > 0 ? '#f87171' : '#4ade80'} />
-             ))}
+           <Bar dataKey="variance" isAnimationActive={false}>
+             {data.map((entry, index) => {
+               const color = entry.variance > 0 ? '#f87171' : '#4ade80';
+               return (
+                 <Cell 
+                   key={`cell-${index}`} 
+                   fill={color} 
+                   stroke={color} // Stroke ensures visibility even if bar is very thin
+                   strokeWidth={1}
+                 />
+               );
+             })}
            </Bar>
         </BarChart>
       </ResponsiveContainer>

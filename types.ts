@@ -1,3 +1,4 @@
+
 export interface GPXPoint {
   lat: number;
   lon: number;
@@ -23,6 +24,7 @@ export interface PlannedSector extends Sector {
   targetDurationSeconds: number; // partial time
   targetPaceSeconds: number; // seconds per km
   accumulatedTimeSeconds: number; // accum time
+  fatigueLevel: number; // 0 to 100 representing accumulated fatigue/stress
   hasAidStation?: boolean;
 }
 
@@ -61,7 +63,7 @@ export interface AnalysisResult {
   aidStations?: AidStation[];
 }
 
-export type MapMetric = 'gradient' | 'pace' | 'elevation' | 'bank';
+export type MapMetric = 'gradient' | 'pace' | 'elevation' | 'bank' | 'fatigue';
 
 export enum AnalysisStatus {
   IDLE = 'IDLE',

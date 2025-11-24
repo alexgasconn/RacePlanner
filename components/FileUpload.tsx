@@ -192,7 +192,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessing }) =
                       {file}
                     </option>
                   ))
-                }
+                )}
               </select>
               <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-slate-400">
                 <ChevronDown className="w-4 h-4" />

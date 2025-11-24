@@ -8,7 +8,7 @@ interface FileUploadProps {
 }
 
 // NOTE: Since this is a client-side app, we cannot dynamically read the filesystem.
-// This list acts as the manifest for files located in the public/data/ folder.
+// This list acts as the manifest for files located in the/data/ folder.
 const SAMPLE_ROUTES = [
   { name: 'Marathon Course (Road)', file: 'marathon.gpx' },
   { name: 'Mountain Trail 25k', file: 'trail.gpx' },
@@ -34,6 +34,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessing }) =
     
     try {
         const response = await fetch(`/data/${selectedSample}`);
+        console.log(response);
         if (!response.ok) throw new Error('File not found');
         const blob = await response.blob();
         const file = new File([blob], selectedSample, { type: 'application/gpx+xml' });
@@ -112,7 +113,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessing }) =
                  </button>
              </div>
              <p className="text-[11px] text-slate-500 mt-3 text-center">
-                Select a file to load directly from the <code>public/data/</code> directory.
+                Select a file to load directly from the <code>data/</code> directory.
              </p>
          </div>
       </div>

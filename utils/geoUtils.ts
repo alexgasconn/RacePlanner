@@ -212,7 +212,7 @@ const calculateSectorStats = (id: number, points: GPXPoint[], startDist: number,
   };
 };
 
-// --- RACE PLANNING MATH ---
+// --- SMART ENDURANCE RACE PLANNING ---
 
 export const calculateRacePlan = (
   sectors: Sector[], 
@@ -221,6 +221,9 @@ export const calculateRacePlan = (
   units: UnitSystem = 'metric'
 ): PlannedSector[] => {
   
+  if (sectors.length === 0) return [];
+  const totalDist = sectors[sectors.length - 1].endDist;
+
   // 1. Identify "stopped time" in aid stations and subtract from running budget
   let totalStoppedTime = 0;
   const aidStationMeters = aidStations.map(station => ({
@@ -240,103 +243,114 @@ export const calculateRacePlan = (
       });
   });
 
-  const availableRunningTime = targetTimeSeconds - totalStoppedTime;
+  // The time available to actually run the course
+  const availableRunningTime = Math.max(0, targetTimeSeconds - totalStoppedTime);
 
-  // --- FATIGUE & GAP MODEL ---
-  // 1. Calculate pure Effort Distance (Terrain Cost)
-  let totalEffortUnits = 0;
+  // --- PHYSICS & PHYSIOLOGY CONSTANTS ---
+  const START_SOFT_RATIO = 0.05; // First 5% of race is warm-up
+  const START_SOFT_PENALTY = 0.05; // Run 5% slower during warm-up
+  const MAX_FATIGUE_LOSS = 0.15; // 15% efficiency loss by the end of race
+  const ANCHOR_BIAS = 0.35; // 35% of pace is anchored to the goal average, 65% varies by terrain
   
-  // Temporary array to hold effort dist before fatigue application
-  const sectorEfforts = sectors.map(s => {
-    const dist = s.endDist - s.startDist;
-    // GAP Heuristics:
-    // Uphill: 1m gain ~= 7.5m flat distance
-    // Downhill: 1m loss ~= -2.0m flat distance (energy saving)
-    
-    let effortDist = dist;
-    effortDist += s.elevationGain * 7.5; 
-    effortDist -= s.elevationLoss * 2.0;
+  // 2. Calculate Weighted Distance
+  // We calculate a "Cost Factor" for every meter of the race based on Grade + Fatigue + Strategy.
+  // WeightedDistance = Sum(SectorDistance * SectorCostFactor)
+  let totalWeightedDistance = 0;
 
-    // Safety: Downhill cannot be faster than ~40% boost (arbitrary physics limit for stability)
-    if (effortDist < dist * 0.6) {
-      effortDist = dist * 0.6;
-    }
+  const sectorWeights = sectors.map(s => {
+      const dist = s.endDist - s.startDist;
+      const grade = s.avgGradient;
+      const sectorMidDist = (s.startDist + s.endDist) / 2;
+      const progressRatio = sectorMidDist / totalDist; // 0.0 to 1.0
 
-    return { ...s, effortDist, rawDist: dist };
-  });
+      // A. Terrain Physics (The "Smart GAP" Model)
+      let terrainCost = 1.0;
+      if (grade > 0) {
+          // Quadratic Uphill Penalty
+          // 2% -> ~7% slower. 5% -> ~20% slower. 10% -> ~50% slower.
+          // Formula: 1 + (g * 0.035) + (g^2 * 0.0015)
+          terrainCost = 1.0 + (grade * 0.035) + (Math.pow(grade, 2) * 0.0015);
+      } else {
+          // Downhill Braking Physics
+          // You assume speed gains, but cap them because biomechanics limits max cadence/stride.
+          // -5% -> ~12% faster. -10% -> ~20% faster. 
+          // Cap at 0.75 (25% faster max) to prevent world-record suggestions on cliffs.
+          let boost = grade * 0.025;
+          if (boost < -0.25) boost = -0.25; // Max speed bonus cap
+          terrainCost = 1.0 + boost;
+      }
 
-  // 2. Calculate Cumulative Effort to determine Fatigue Factor
-  // We assume total "work" done corresponds to total Effort Distance.
-  const totalRaceEffort = sectorEfforts.reduce((acc, s) => acc + s.effortDist, 0);
-  
-  // Fatigue Decay Model:
-  // We assume at the end of the race, the runner is X% less efficient than at start.
-  // E.g. 20% drift (MAX_FATIGUE = 0.20)
-  const MAX_FATIGUE = 0.20; 
-  
-  let currentAccumulatedEffort = 0;
-  let totalAdjustedEffortUnits = 0; // "Cost" units including fatigue penalty
+      // B. Strategy: Start Soft
+      let warmUpFactor = 1.0;
+      if (progressRatio < START_SOFT_RATIO) {
+          warmUpFactor = 1.0 + START_SOFT_PENALTY;
+      }
 
-  const sectorsWithFatigue = sectorEfforts.map(s => {
-      // Calculate average fatigue for this sector based on where we are in the race effort
-      const startFatigueRatio = currentAccumulatedEffort / totalRaceEffort;
-      const endFatigueRatio = (currentAccumulatedEffort + s.effortDist) / totalRaceEffort;
-      const avgFatigueRatio = (startFatigueRatio + endFatigueRatio) / 2;
+      // C. Physiology: Fatigue Drift
+      // Linear drift from 0% to MAX_FATIGUE_LOSS
+      // At start (0.0): 1.0. At finish (1.0): 1.15
+      const fatigueFactor = 1.0 + (progressRatio * MAX_FATIGUE_LOSS);
 
-      // Fatigue Multiplier: 1.0 (Fresh) -> 1.2 (Tired)
-      const fatigueMultiplier = 1 + (avgFatigueRatio * MAX_FATIGUE);
-      
-      // The "Time Cost" of this sector is its Effort Distance * Fatigue Multiplier
-      const adjustedEffort = s.effortDist * fatigueMultiplier;
+      // Combined Raw Factor (Physics + Physio)
+      const rawFactor = terrainCost * warmUpFactor * fatigueFactor;
 
-      totalAdjustedEffortUnits += adjustedEffort;
-      currentAccumulatedEffort += s.effortDist;
+      // D. Anchoring
+      // We pull the raw wildly varying factor back towards 1.0 (Average Pace)
+      // This ensures we respect the specific goal time significantly
+      const finalCostFactor = (rawFactor * (1 - ANCHOR_BIAS)) + (1.0 * ANCHOR_BIAS);
+
+      totalWeightedDistance += dist * finalCostFactor;
 
       return {
           ...s,
-          adjustedEffort,
-          fatigueLevel: avgFatigueRatio * 100 // Store as percentage 0-100
+          finalCostFactor,
+          fatigueLevel: progressRatio * 100
       };
   });
 
   // 3. Solve for Base Pace
-  // availableRunningTime = Sum(AdjustedEffort_i * BaseSecondsPerUnit)
-  // BaseSecondsPerUnit = availableRunningTime / TotalAdjustedEffortUnits
-  const secondsPerEffortUnit = availableRunningTime / totalAdjustedEffortUnits;
+  // BasePace (sec/m) = AvailableTime / TotalWeightedDistance
+  // This represents the pace on a perfectly flat, fresh segment to achieve the goal.
+  const basePacePerMeter = availableRunningTime / totalWeightedDistance;
 
-  // 4. Final Compilation
-  let accumulatedTime = 0;
+  // 4. Compile Plan
+  let currentAccumulatedTime = 0;
 
-  return sectorsWithFatigue.map(s => {
-    // Basic running time with terrain + fatigue
-    let sectorDuration = s.adjustedEffort * secondsPerEffortUnit;
-    
-    // Add aid station penalty if present
-    const penalty = stationAssignments[s.id] || 0;
-    sectorDuration += penalty;
+  return sectorWeights.map(s => {
+      const dist = s.endDist - s.startDist;
+      
+      // Calculate running duration for this sector
+      // Duration = Dist * CostFactor * BasePace
+      const runningDuration = dist * s.finalCostFactor * basePacePerMeter;
 
-    accumulatedTime += sectorDuration;
-    
-    const sectorDistKm = (s.endDist - s.startDist) / 1000;
-    const paceSeconds = sectorDuration / sectorDistKm;
+      // Add Aid Station Penalty
+      const stopTime = stationAssignments[s.id] || 0;
+      const totalDuration = runningDuration + stopTime;
 
-    return {
-      id: s.id,
-      startDist: s.startDist,
-      endDist: s.endDist,
-      elevationGain: s.elevationGain,
-      elevationLoss: s.elevationLoss,
-      avgGradient: s.avgGradient,
-      maxEle: s.maxEle,
-      minEle: s.minEle,
-      points: s.points,
-      combinedElevationChange: s.elevationGain + s.elevationLoss,
-      targetDurationSeconds: sectorDuration,
-      targetPaceSeconds: paceSeconds,
-      accumulatedTimeSeconds: accumulatedTime,
-      hasAidStation: penalty > 0,
-      fatigueLevel: s.fatigueLevel
-    };
+      currentAccumulatedTime += totalDuration;
+
+      // Target Pace: We display the "Running Pace" (intensity), not the "Stopped Pace".
+      // If we included stop time in pace, it would look like you are walking 20min/km at aid stations.
+      // The user wants to know how fast to run.
+      const runningPaceSecondsPerKm = runningDuration / (dist / 1000);
+
+      return {
+          id: s.id,
+          startDist: s.startDist,
+          endDist: s.endDist,
+          elevationGain: s.elevationGain,
+          elevationLoss: s.elevationLoss,
+          avgGradient: s.avgGradient,
+          maxEle: s.maxEle,
+          minEle: s.minEle,
+          points: s.points,
+          combinedElevationChange: s.elevationGain + s.elevationLoss,
+          targetDurationSeconds: totalDuration, // Includes stop time for total ETA
+          targetPaceSeconds: runningPaceSecondsPerKm, // Pure running pace
+          accumulatedTimeSeconds: currentAccumulatedTime,
+          hasAidStation: stopTime > 0,
+          fatigueLevel: s.fatigueLevel
+      };
   });
 };
 

@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx creator="Wikiloc - https://www.wikiloc.com" version="1.1" xmlns="http://www.topografix.com/GPX/1/1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
+  <metadata>
+    <name>Wikiloc - 10K: XV cursa dels nassos</name>
+    <link href="https://www.wikiloc.com/running-trails/10k-xv-cursa-dels-nassos-5877103">
+      <text>10K: XV cursa dels nassos - Wikiloc on Wikiloc</text>
+    </link>
+    <time>2013-12-31T17:27:02Z</time>
+  </metadata>
+  <trk>
+    <name>10K: XV cursa dels nassos - Wikiloc</name>
+    <cmt></cmt>
+    <desc></desc>
+    <trkseg>
+      <trkpt lat="41.406219" lon="2.212619">
+        <ele>8.092</ele>
+        <time>2013-12-31T16:40:28Z</time>
+      </trkpt>
+      <trkpt lat="41.404728" lon="2.214604">
+        <ele>13.473</ele>
+        <time>2013-12-31T16:41:37Z</time>
+      </trkpt>
+      <trkpt lat="41.404392" lon="2.214858">
+        <ele>10.420</ele>
+        <time>2013-12-31T16:41:49Z</time>
+      </trkpt>
+      <trkpt lat="41.404205" lon="2.214459">
+        <ele>10.807</ele>
+        <time>2013-12-31T16:42:00Z</time>
+      </trkpt>
+      <trkpt lat="41.403275" lon="2.213562">
+        <ele>7.894</ele>
+        <time>2013-12-31T16:42:37Z</time>
+      </trkpt>
+      <trkpt lat="41.401630" lon="2.211224">
+        <ele>11.457</ele>
+        <time>2013-12-31T16:43:51Z</time>
+      </trkpt>
+      <trkpt lat="41.400032" lon="2.209250">
+        <ele>7.846</ele>
+        <time>2013-12-31T16:45:00Z</time>
+      </trkpt>
+      <trkpt lat="41.396477" lon="2.205344">
+        <ele>6.246</ele>
+        <time>2013-12-31T16:47:23Z</time>
+      </trkpt>
+      <trkpt lat="41.396168" lon="2.205333">
+        <ele>6.820</ele>
+        <time>2013-12-31T16:47:34Z</time>
+      </trkpt>
+      <trkpt lat="41.395653" lon="2.206006">
+        <ele>6.479</ele>
+        <time>2013-12-31T16:48:00Z</time>
+      </trkpt>
+      <trkpt lat="41.395275" lon="2.205700">
+        <ele>7.082</ele>
+        <time>2013-12-31T16:48:15Z</time>
+      </trkpt>
+      <trkpt lat="41.387066" lon="2.194780">
+        <ele>10.412</ele>
+        <time>2013-12-31T16:54:21Z</time>
+      </trkpt>
+      <trkpt lat="41.385014" lon="2.191809">
+        <ele>5.632</ele>
+        <time>2013-12-31T16:55:55Z</time>
+      </trkpt>
+      <trkpt lat="41.383793" lon="2.189425">
+        <ele>6.805</ele>
+        <time>2013-12-31T16:57:02Z</time>
+      </trkpt>
+      <trkpt lat="41.382267" lon="2.185868">
+        <ele>5.207</ele>
+        <time>2013-12-31T16:58:37Z</time>
+      </trkpt>
+      <trkpt lat="41.382385" lon="2.185166">
+        <ele>7.616</ele>
+        <time>2013-12-31T16:58:54Z</time>
+      </trkpt>
+      <trkpt lat="41.382984" lon="2.183943">
+        <ele>14.819</ele>
+        <time>2013-12-31T16:59:28Z</time>
+      </trkpt>
+      <trkpt lat="41.383133" lon="2.183889">
+        <ele>15.638</ele>
+        <time>2013-12-31T16:59:33Z</time>
+      </trkpt>
+      <trkpt lat="41.383499" lon="2.184089">
+        <ele>17.838</ele>
+        <time>2013-12-31T16:59:46Z</time>
+      </trkpt>
+      <trkpt lat="41.385529" lon="2.185693">
+        <ele>15.052</ele>
+        <time>2013-12-31T17:00:59Z</time>
+      </trkpt>
+      <trkpt lat="41.386997" lon="2.184041">
+        <ele>14.221</ele>
+        <time>2013-12-31T17:02:02Z</time>
+      </trkpt>
+      <trkpt lat="41.385132" lon="2.186782">
+        <ele>10.674</ele>
+        <time>2013-12-31T17:03:31Z</time>
+      </trkpt>
+      <trkpt lat="41.384815" lon="2.188269">
+        <ele>11.817</ele>
+        <time>2013-12-31T17:04:09Z</time>
+      </trkpt>
+      <trkpt lat="41.384872" lon="2.189173">
+        <ele>11.287</ele>
+        <time>2013-12-31T17:04:31Z</time>
+      </trkpt>
+      <trkpt lat="41.385250" lon="2.190360">
+        <ele>8.415</ele>
+        <time>2013-12-31T17:05:01Z</time>
+      </trkpt>
+      <trkpt lat="41.385853" lon="2.191348">
+        <ele>9.807</ele>
+        <time>2013-12-31T17:05:31Z</time>
+      </trkpt>
+      <trkpt lat="41.389065" lon="2.194304">
+        <ele>12.436</ele>
+        <time>2013-12-31T17:07:36Z</time>
+      </trkpt>
+      <trkpt lat="41.389343" lon="2.194247">
+        <ele>12.279</ele>
+        <time>2013-12-31T17:07:46Z</time>
+      </trkpt>
+      <trkpt lat="41.393982" lon="2.188125">
+        <ele>20.618</ele>
+        <time>2013-12-31T17:11:11Z</time>
+      </trkpt>
+      <trkpt lat="41.394268" lon="2.188315">
+        <ele>20.258</ele>
+        <time>2013-12-31T17:11:21Z</time>
+      </trkpt>
+      <trkpt lat="41.397366" lon="2.192515">
+        <ele>13.652</ele>
+        <time>2013-12-31T17:13:36Z</time>
+      </trkpt>
+      <trkpt lat="41.399231" lon="2.190023">
+        <ele>10.421</ele>
+        <time>2013-12-31T17:14:58Z</time>
+      </trkpt>
+      <trkpt lat="41.400742" lon="2.188322">
+        <ele>15.454</ele>
+        <time>2013-12-31T17:15:59Z</time>
+      </trkpt>
+      <trkpt lat="41.403316" lon="2.191372">
+        <ele>9.442</ele>
+        <time>2013-12-31T17:17:45Z</time>
+      </trkpt>
+      <trkpt lat="41.403454" lon="2.191375">
+        <ele>10.422</ele>
+        <time>2013-12-31T17:17:50Z</time>
+      </trkpt>
+      <trkpt lat="41.403957" lon="2.190627">
+        <ele>15.614</ele>
+        <time>2013-12-31T17:18:16Z</time>
+      </trkpt>
+      <trkpt lat="41.404106" lon="2.190740">
+        <ele>17.207</ele>
+        <time>2013-12-31T17:18:21Z</time>
+      </trkpt>
+      <trkpt lat="41.404934" lon="2.193023">
+        <ele>16.489</ele>
+        <time>2013-12-31T17:19:14Z</time>
+      </trkpt>
+      <trkpt lat="41.406075" lon="2.197081">
+        <ele>10.232</ele>
+        <time>2013-12-31T17:20:49Z</time>
+      </trkpt>
+      <trkpt lat="41.407288" lon="2.202737">
+        <ele>7.811</ele>
+        <time>2013-12-31T17:23:00Z</time>
+      </trkpt>
+      <trkpt lat="41.408291" lon="2.205544">
+        <ele>7.651</ele>
+        <time>2013-12-31T17:24:06Z</time>
+      </trkpt>
+      <trkpt lat="41.409046" lon="2.209005">
+        <ele>13.035</ele>
+        <time>2013-12-31T17:25:27Z</time>
+      </trkpt>
+      <trkpt lat="41.408970" lon="2.209242">
+        <ele>13.034</ele>
+        <time>2013-12-31T17:25:32Z</time>
+      </trkpt>
+      <trkpt lat="41.407391" lon="2.210937">
+        <ele>12.297</ele>
+        <time>2013-12-31T17:26:22Z</time>
+      </trkpt>
+      <trkpt lat="41.406353" lon="2.212433">
+        <ele>6.415</ele>
+        <time>2013-12-31T17:27:02Z</time>
+      </trkpt>
+    </trkseg>
+  </trk></gpx>

@@ -59,7 +59,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessing }) =
     return [];
   }
 
-  // --- NEW: discover files and auto-load first file from /data/ on mount ---
+  // --- discover files in /data/ but DO NOT auto-load any file ---
   useEffect(() => {
     if (isProcessing) return;
     let cancelled = false;
@@ -68,38 +68,14 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessing }) =
       const files = await fetchDataListing();
       if (cancelled) return;
       setDataFiles(files);
-      if (files.length > 0) {
-        const first = files[0];
-        setSelectedSample(first);
-        // auto-load first file
-        try {
-          const urlCandidates = [
-            `/data/${encodeURIComponent(first)}`,
-            `${window.location.origin}/data/${encodeURIComponent(first)}`,
-            `${process.env.PUBLIC_URL || ''}/data/${encodeURIComponent(first)}`,
-            `./data/${encodeURIComponent(first)}`
-          ];
-          for (const url of urlCandidates) {
-            try {
-              const r = await fetch(url);
-              if (!r.ok) continue;
-              const blob = await r.blob();
-              const mime = blob.type || 'application/gpx+xml';
-              const file = new File([blob], first, { type: mime });
-              onFileSelect(file);
-              return;
-            } catch {
-              continue;
-            }
-          }
-        } catch {
-          // ignore auto-load failure
-        }
-      }
+      // Option A: don't preselect any file (forces user to choose)
+      setSelectedSample('');
+      // Option B (uncomment if you want the first filename preselected but still require clicking "Load"):
+      // setSelectedSample(files.length ? files[0] : '');
     })();
 
     return () => { cancelled = true; };
-  }, [onFileSelect, isProcessing]);
+  }, [isProcessing]);
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {

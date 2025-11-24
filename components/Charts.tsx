@@ -1,10 +1,11 @@
 import React from 'react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  BarChart, Bar, Cell, ComposedChart, Line, ReferenceLine
+  BarChart, Bar, Cell, ComposedChart, Line, ReferenceLine, ReferenceDot
 } from 'recharts';
-import { GPXPoint, PlannedSector } from '../types';
-import { formatPace, formatDuration } from '../utils/geoUtils';
+import { GPXPoint, PlannedSector, UnitSystem } from '../types';
+import { formatPace, formatDistance, formatElevation } from '../utils/unitUtils';
+import { formatDuration } from '../utils/geoUtils';
 
 // Helper to determine color based on gradient
 const getGradientColor = (val: number) => {
@@ -17,18 +18,48 @@ const getGradientColor = (val: number) => {
     return '#15803d'; // Dark Green (Steep Downhill)
 };
 
-export const ElevationProfile: React.FC<{ rawData: GPXPoint[] }> = ({ rawData }) => {
+interface ChartProps {
+  sectors?: PlannedSector[];
+  units: UnitSystem;
+  rawData?: GPXPoint[];
+  avgPaceSeconds?: number;
+  onHover?: (distance: number | null) => void;
+  hoveredDist?: number | null;
+}
+
+export const ElevationProfile: React.FC<ChartProps> = ({ rawData, units, onHover, hoveredDist }) => {
+  if (!rawData) return null;
   // We downsample raw data for performance but keep shape
   const chartData = rawData.filter((_, i) => i % 5 === 0).map(p => ({
-    dist: (p.distFromStart / 1000).toFixed(2),
-    ele: Math.round(p.ele),
-    distNum: p.distFromStart
+    dist: parseFloat(formatDistance(p.distFromStart, units)),
+    ele: parseInt(formatElevation(p.ele, units)),
+    rawDist: p.distFromStart
   }));
 
+  // Find the point closest to hoveredDist for the ReferenceDot
+  let activePoint = null;
+  if (hoveredDist !== null && hoveredDist !== undefined) {
+      // Find closest
+      const unitDist = parseFloat(formatDistance(hoveredDist, units));
+      // Simple approximate search
+      activePoint = chartData.reduce((prev, curr) => {
+        return (Math.abs(curr.dist - unitDist) < Math.abs(prev.dist - unitDist) ? curr : prev);
+      });
+  }
+
   return (
-    <div className="h-72 w-full">
+    <div className="h-72 w-full" onMouseLeave={() => onHover && onHover(null)}>
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={chartData} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
+        <AreaChart 
+          data={chartData} 
+          margin={{ top: 10, right: 0, left: -20, bottom: 0 }}
+          onMouseMove={(e) => {
+            if (e.activePayload && e.activePayload[0] && onHover) {
+              const d = e.activePayload[0].payload.rawDist;
+              onHover(d);
+            }
+          }}
+        >
           <defs>
             <linearGradient id="eleFill" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.4}/>
@@ -39,11 +70,11 @@ export const ElevationProfile: React.FC<{ rawData: GPXPoint[] }> = ({ rawData })
           
           <XAxis 
             dataKey="dist" 
-            type="category"
-            allowDuplicatedCategory={false}
+            type="number"
+            domain={['dataMin', 'dataMax']}
             tick={{fontSize: 12, fill: '#94a3b8'}} 
             interval="preserveStartEnd"
-            minTickGap={50}
+            tickCount={10}
             tickLine={false}
             axisLine={false}
           />
@@ -59,10 +90,10 @@ export const ElevationProfile: React.FC<{ rawData: GPXPoint[] }> = ({ rawData })
           <Tooltip 
             contentStyle={{ backgroundColor: '#0f172a', borderColor: '#475569', color: '#f8fafc' }}
             formatter={(value: any, name: string) => {
-               if (name === 'Elevation') return [`${value}m`, name];
+               if (name === 'Elevation') return [`${value} ${units === 'metric' ? 'm' : 'ft'}`, name];
                return [value, name];
             }}
-            labelFormatter={(label) => `${label} km`}
+            labelFormatter={(label) => `${label} ${units === 'metric' ? 'km' : 'mi'}`}
           />
 
           <Area 
@@ -73,19 +104,26 @@ export const ElevationProfile: React.FC<{ rawData: GPXPoint[] }> = ({ rawData })
             strokeWidth={3}
             fill="url(#eleFill)" 
             animationDuration={1500}
+            isAnimationActive={false} // Disable animation to prevent jumpiness on hover sync
           />
+          
+          {activePoint && (
+             <ReferenceDot x={activePoint.dist} y={activePoint.ele} r={6} fill="#3b82f6" stroke="#fff" />
+          )}
+
         </AreaChart>
       </ResponsiveContainer>
     </div>
   );
 };
 
-export const CourseDifficultyRibbon: React.FC<{ sectors: PlannedSector[] }> = ({ sectors }) => {
+export const CourseDifficultyRibbon: React.FC<ChartProps> = ({ sectors }) => {
+  if (!sectors) return null;
   // This chart visualizes the "Hardness" as a continuous bar strip
   // Sorted by distance to ensure order
   const data = [...sectors].sort((a,b) => a.id - b.id).map(s => ({
     id: s.id,
-    km: (s.endDist / 1000).toFixed(1),
+    dist: s.endDist,
     grad: s.avgGradient,
     intensity: 1 // Fixed height for ribbon effect
   }));
@@ -125,37 +163,10 @@ export const CourseDifficultyRibbon: React.FC<{ sectors: PlannedSector[] }> = ({
   );
 };
 
-export const SectorGainChart: React.FC<{ sectors: PlannedSector[] }> = ({ sectors }) => {
-  const data = [...sectors].sort((a,b) => a.id - b.id).map(s => ({
-    name: `#${s.id}`,
-    gain: Math.round(s.elevationGain),
-  }));
-
-  return (
-    <div className="h-48 w-full mt-4">
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
-          <XAxis dataKey="name" stroke="#94a3b8" tick={{fontSize: 10}} tickLine={false} axisLine={false} />
-          <Tooltip 
-            cursor={{fill: '#334155', opacity: 0.4}}
-            contentStyle={{ backgroundColor: '#1e293b', borderColor: '#475569', color: '#f8fafc' }}
-          />
-          <Bar dataKey="gain" fill="#f97316" radius={[4, 4, 0, 0]}>
-             {data.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={entry.gain > 30 ? '#ef4444' : '#f97316'} />
-              ))}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
-  );
-};
-
-export const PaceStrategyChart: React.FC<{ sectors: PlannedSector[] }> = ({ sectors }) => {
-  // STRICT SORTING BY ID/DISTANCE
+export const PaceStrategyChart: React.FC<ChartProps> = ({ sectors, units }) => {
+  if (!sectors) return null;
   const data = [...sectors].sort((a, b) => a.id - b.id).map(s => ({
-    km: (s.endDist/1000).toFixed(1),
+    km: parseFloat(formatDistance(s.endDist, units)),
     pace: s.targetPaceSeconds, 
     gradient: s.avgGradient
   }));
@@ -163,12 +174,20 @@ export const PaceStrategyChart: React.FC<{ sectors: PlannedSector[] }> = ({ sect
   return (
     <div className="h-72 w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <ComposedChart data={data} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
+        <ComposedChart 
+          data={data} 
+          margin={{ top: 10, right: 0, left: -20, bottom: 0 }}
+          barCategoryGap={0} // Make gradient bars touch or be very close
+        >
           <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
           <XAxis 
              dataKey="km" 
+             type="number"
+             domain={['dataMin', 'dataMax']}
              stroke="#94a3b8" 
              tick={{fontSize: 12}} 
+             tickCount={10} // More frequent ticks
+             interval="preserveStartEnd"
              tickLine={false}
              axisLine={false}
           />
@@ -177,7 +196,7 @@ export const PaceStrategyChart: React.FC<{ sectors: PlannedSector[] }> = ({ sect
              stroke="#60a5fa" 
              tick={{fontSize: 12, fill: '#60a5fa'}}
              domain={['auto', 'auto']}
-             tickFormatter={(val) => formatPace(val).replace('/km','')}
+             tickFormatter={(val) => formatPace(val, units).split('/')[0]}
              reversed={true} 
              tickLine={false}
              axisLine={false}
@@ -192,14 +211,14 @@ export const PaceStrategyChart: React.FC<{ sectors: PlannedSector[] }> = ({ sect
           />
           <Tooltip 
             contentStyle={{ backgroundColor: '#1e293b', borderColor: '#475569', color: '#f8fafc' }}
-            labelFormatter={(label) => `Km ${label}`}
+            labelFormatter={(label) => `${units === 'metric' ? 'Km' : 'Mi'} ${label}`}
             formatter={(value: any, name: string) => {
-              if (name === 'pace') return [formatPace(value), 'Target Pace'];
+              if (name === 'pace') return [formatPace(value, units), 'Target Pace'];
               if (name === 'gradient') return [`${parseFloat(value).toFixed(1)}%`, 'Gradient'];
               return [value, name];
             }}
           />
-          <Bar yAxisId="right" dataKey="gradient" fill="#94a3b8" opacity={0.1} barSize={20} />
+          <Bar yAxisId="right" dataKey="gradient" fill="#94a3b8" opacity={0.1} barSize={undefined} />
           <Line 
             yAxisId="left"
             type="monotone" 
@@ -215,7 +234,8 @@ export const PaceStrategyChart: React.FC<{ sectors: PlannedSector[] }> = ({ sect
   );
 };
 
-export const GradientDistributionChart: React.FC<{ sectors: PlannedSector[] }> = ({ sectors }) => {
+export const GradientDistributionChart: React.FC<ChartProps> = ({ sectors }) => {
+  if (!sectors) return null;
   const gradients = sectors.map(s => s.avgGradient);
   const minG = Math.floor(Math.min(...gradients));
   const maxG = Math.ceil(Math.max(...gradients));
@@ -250,7 +270,7 @@ export const GradientDistributionChart: React.FC<{ sectors: PlannedSector[] }> =
   return (
     <div className="h-64 w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+        <BarChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }} barCategoryGap="15%">
           <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
           <XAxis dataKey="label" stroke="#94a3b8" fontSize={10} interval={0} tickLine={false} axisLine={false} />
           <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false}/>
@@ -269,11 +289,12 @@ export const GradientDistributionChart: React.FC<{ sectors: PlannedSector[] }> =
   );
 };
 
-export const PaceVarianceChart: React.FC<{ sectors: PlannedSector[], avgPaceSeconds: number }> = ({ sectors, avgPaceSeconds }) => {
+export const PaceVarianceChart: React.FC<ChartProps> = ({ sectors, avgPaceSeconds, units }) => {
+  if (!sectors || !avgPaceSeconds) return null;
   const sortedSectors = [...sectors].sort((a,b) => a.id - b.id);
   
   const data = sortedSectors.map(s => ({
-    km: (s.endDist/1000).toFixed(1),
+    km: parseFloat(formatDistance(s.endDist, units)),
     variance: s.targetPaceSeconds - avgPaceSeconds, 
     distNum: s.endDist
   }));
@@ -281,12 +302,20 @@ export const PaceVarianceChart: React.FC<{ sectors: PlannedSector[], avgPaceSeco
   return (
     <div className="h-64 w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ top: 5, right: 0, left: -10, bottom: 0 }}>
+        <BarChart 
+          data={data} 
+          margin={{ top: 5, right: 0, left: -10, bottom: 0 }}
+          barCategoryGap="10%" // Thicker bars
+        >
            <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
            <XAxis 
             dataKey="km" 
+            type="number"
+            domain={['dataMin', 'dataMax']}
             stroke="#94a3b8" 
             tick={{fontSize: 10}} 
+            tickCount={10} // Explicit tick count to avoid 3.5 jumps if possible
+            interval="preserveStartEnd"
             tickLine={false}
             axisLine={false}
            />
@@ -313,10 +342,10 @@ export const PaceVarianceChart: React.FC<{ sectors: PlannedSector[], avgPaceSeco
   );
 };
 
-export const TimeBankChart: React.FC<{ sectors: PlannedSector[], avgPaceSeconds: number }> = ({ sectors, avgPaceSeconds }) => {
+export const TimeBankChart: React.FC<ChartProps> = ({ sectors, avgPaceSeconds, units }) => {
+    if (!sectors || !avgPaceSeconds) return null;
     // Sort to ensure line is correct
     const sorted = [...sectors].sort((a,b) => a.id - b.id);
-    let cumulativeDelta = 0;
     
     const data = sorted.map(s => {
         const distKm = s.endDist / 1000;
@@ -325,7 +354,7 @@ export const TimeBankChart: React.FC<{ sectors: PlannedSector[], avgPaceSeconds:
         const delta = linearTime - plannedTime; 
         
         return {
-            km: distKm.toFixed(1),
+            km: parseFloat(formatDistance(s.endDist, units)),
             delta: delta,
             formattedDelta: formatDuration(Math.abs(delta))
         };
@@ -342,7 +371,17 @@ export const TimeBankChart: React.FC<{ sectors: PlannedSector[], avgPaceSeconds:
                         </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
-                    <XAxis dataKey="km" stroke="#94a3b8" tick={{fontSize: 10}} tickLine={false} axisLine={false} />
+                    <XAxis 
+                      dataKey="km" 
+                      type="number" 
+                      domain={['dataMin', 'dataMax']} 
+                      stroke="#94a3b8" 
+                      tick={{fontSize: 10}} 
+                      tickCount={10}
+                      interval="preserveStartEnd"
+                      tickLine={false} 
+                      axisLine={false} 
+                    />
                     <YAxis stroke="#94a3b8" tick={{fontSize: 10}} tickLine={false} axisLine={false}/>
                     <Tooltip 
                         contentStyle={{ backgroundColor: '#1e293b', borderColor: '#475569', color: '#f8fafc' }}

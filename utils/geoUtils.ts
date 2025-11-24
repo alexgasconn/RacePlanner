@@ -1,4 +1,5 @@
-import { GPXPoint, Sector, AnalysisResult, PlannedSector } from '../types';
+import { GPXPoint, Sector, AnalysisResult, PlannedSector, TrackStats, AidStation, UnitSystem } from '../types';
+import { KM_TO_MILES } from './unitUtils';
 
 // Haversine formula to calculate distance between two lat/lon points in meters
 export const getDistanceFromLatLonInMeters = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
@@ -73,7 +74,8 @@ const getPointAt = (points: GPXPoint[], targetDist: number, startIndexHint: numb
     return { point: points[lastIdx], index: lastIdx };
 };
 
-export const parseGPX = async (fileContent: string): Promise<AnalysisResult> => {
+// Purely parses the file into points and calculates global stats
+export const parseGPXRaw = async (fileContent: string): Promise<{ points: GPXPoint[], stats: TrackStats }> => {
   const parser = new DOMParser();
   const xmlDoc = parser.parseFromString(fileContent, "text/xml");
   const trkpts = xmlDoc.getElementsByTagName("trkpt");
@@ -131,16 +133,29 @@ export const parseGPX = async (fileContent: string): Promise<AnalysisResult> => 
     }
   });
 
-  // 3. Generate Precise Sectors (every 500m)
-  const SECTOR_SIZE = 500;
+  return {
+    points,
+    stats: {
+      totalDistance: totalDist,
+      totalElevationGain: totalGain,
+      totalElevationLoss: totalLoss,
+      maxElevation: maxEle,
+      minElevation: minEle,
+      pointCount: points.length
+    }
+  };
+};
+
+export const generateSectors = (points: GPXPoint[], sectorSize: number): Sector[] => {
   const sectors: Sector[] = [];
-  const numSectors = Math.ceil(totalDist / SECTOR_SIZE);
+  const totalDist = points[points.length - 1].distFromStart;
+  const numSectors = Math.ceil(totalDist / sectorSize);
   
   let searchHintIndex = 0;
 
   for (let i = 0; i < numSectors; i++) {
-      const startDist = i * SECTOR_SIZE;
-      const endDist = Math.min((i + 1) * SECTOR_SIZE, totalDist);
+      const startDist = i * sectorSize;
+      const endDist = Math.min((i + 1) * sectorSize, totalDist);
 
       // Interpolate Start and End points for this specific sector
       const startResult = getPointAt(points, startDist, searchHintIndex);
@@ -157,19 +172,7 @@ export const parseGPX = async (fileContent: string): Promise<AnalysisResult> => 
 
       sectors.push(calculateSectorStats(i + 1, sectorPoints, startDist, endDist));
   }
-
-  return {
-    rawPoints: points,
-    stats: {
-      totalDistance: totalDist,
-      totalElevationGain: totalGain,
-      totalElevationLoss: totalLoss,
-      maxElevation: maxEle,
-      minElevation: minEle,
-      pointCount: points.length
-    },
-    sectors
-  };
+  return sectors;
 };
 
 const calculateSectorStats = (id: number, points: GPXPoint[], startDist: number, endDist: number): Sector => {
@@ -210,13 +213,36 @@ const calculateSectorStats = (id: number, points: GPXPoint[], startDist: number,
 
 // --- RACE PLANNING MATH ---
 
-export const calculateRacePlan = (sectors: Sector[], targetTimeSeconds: number): PlannedSector[] => {
-  // We use a simplified Grade Adjusted Pace (GAP) model.
-  // We assign an "Effort Cost" to each sector based on distance and gradient.
-  // Flat 1m = 1 effort unit.
-  // Uphill = Distance + (Gain * Factor). 
-  // Downhill = Distance - (Loss * Factor).
+export const calculateRacePlan = (
+  sectors: Sector[], 
+  targetTimeSeconds: number,
+  aidStations: AidStation[] = [],
+  units: UnitSystem = 'metric'
+): PlannedSector[] => {
   
+  // 1. Identify "stopped time" in aid stations and subtract from running budget
+  let totalStoppedTime = 0;
+  const aidStationMeters = aidStations.map(station => ({
+     // Convert station distance to meters for matching
+     distMeters: units === 'metric' ? station.distanceFromStart * 1000 : (station.distanceFromStart / KM_TO_MILES) * 1000,
+     penalty: station.penaltySeconds
+  }));
+
+  // We need to map stations to sectors to apply the penalty
+  const stationAssignments: Record<number, number> = {}; // sectorId -> seconds
+
+  sectors.forEach(sector => {
+      aidStationMeters.forEach(station => {
+          if (station.distMeters > sector.startDist && station.distMeters <= sector.endDist) {
+              stationAssignments[sector.id] = (stationAssignments[sector.id] || 0) + station.penalty;
+              totalStoppedTime += station.penalty;
+          }
+      });
+  });
+
+  const availableRunningTime = targetTimeSeconds - totalStoppedTime;
+
+  // We use a simplified Grade Adjusted Pace (GAP) model.
   let totalEffortUnits = 0;
 
   const weightedSectors = sectors.map(s => {
@@ -229,7 +255,6 @@ export const calculateRacePlan = (sectors: Sector[], targetTimeSeconds: number):
     effortDist -= s.elevationLoss * 2.0;
 
     // Safety cap: Downhill cannot be instantaneous. 
-    // Minimum effort is 60% of flat distance (sprinting downhill still takes time)
     if (effortDist < dist * 0.6) {
       effortDist = dist * 0.6;
     }
@@ -238,15 +263,25 @@ export const calculateRacePlan = (sectors: Sector[], targetTimeSeconds: number):
     return { ...s, effortDist };
   });
 
-  const secondsPerEffortUnit = targetTimeSeconds / totalEffortUnits;
+  const secondsPerEffortUnit = availableRunningTime / totalEffortUnits;
 
   let accumulatedTime = 0;
 
   return weightedSectors.map(s => {
-    const sectorDuration = s.effortDist * secondsPerEffortUnit;
+    // Basic running time
+    let sectorDuration = s.effortDist * secondsPerEffortUnit;
+    
+    // Add aid station penalty if present
+    const penalty = stationAssignments[s.id] || 0;
+    sectorDuration += penalty;
+
     accumulatedTime += sectorDuration;
     
     const sectorDistKm = (s.endDist - s.startDist) / 1000;
+    // Pace calc should normally include the stop if we want "gross pace", 
+    // but usually runners want "moving pace". 
+    // However, for a race planner, "Sector Pace" usually implies the time it takes to complete the sector.
+    // Let's keep it as gross time for the plan.
     const paceSeconds = sectorDuration / sectorDistKm;
 
     return {
@@ -254,7 +289,8 @@ export const calculateRacePlan = (sectors: Sector[], targetTimeSeconds: number):
       combinedElevationChange: s.elevationGain + s.elevationLoss,
       targetDurationSeconds: sectorDuration,
       targetPaceSeconds: paceSeconds,
-      accumulatedTimeSeconds: accumulatedTime
+      accumulatedTimeSeconds: accumulatedTime,
+      hasAidStation: penalty > 0
     };
   });
 };
@@ -268,10 +304,4 @@ export const formatDuration = (seconds: number): string => {
   
   if (h > 0) return `${h}:${pad(m)}:${pad(s)}`;
   return `${m}:${pad(s)}`;
-};
-
-export const formatPace = (secondsPerKm: number): string => {
-  const m = Math.floor(secondsPerKm / 60);
-  const s = Math.floor(secondsPerKm % 60);
-  return `${m}:${s.toString().padStart(2, '0')}/km`;
 };

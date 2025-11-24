@@ -23,6 +23,7 @@ export interface PlannedSector extends Sector {
   targetDurationSeconds: number; // partial time
   targetPaceSeconds: number; // seconds per km
   accumulatedTimeSeconds: number; // accum time
+  hasAidStation?: boolean;
 }
 
 export interface TrackStats {
@@ -34,13 +35,33 @@ export interface TrackStats {
   pointCount: number;
 }
 
+export type UnitSystem = 'metric' | 'imperial';
+
+export interface WeatherData {
+  temperatureMax: number;
+  precipitationProb: number;
+  windSpeed: number;
+  conditionCode: number;
+}
+
+export interface AidStation {
+  id: string;
+  distanceFromStart: number; // in user units (km or mi)
+  penaltySeconds: number;
+}
+
 export interface AnalysisResult {
   stats: TrackStats;
   sectors: Sector[];
   rawPoints: GPXPoint[];
   plan?: PlannedSector[];
   targetTimeSeconds?: number;
+  units: UnitSystem;
+  weather?: WeatherData;
+  aidStations?: AidStation[];
 }
+
+export type MapMetric = 'gradient' | 'pace' | 'elevation' | 'bank';
 
 export enum AnalysisStatus {
   IDLE = 'IDLE',

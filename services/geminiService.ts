@@ -1,6 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { PlannedSector, TrackStats } from '../types';
-import { formatDuration, formatPace } from '../utils/geoUtils';
+import { formatDuration } from '../utils/geoUtils';
+import { formatPace } from '../utils/unitUtils';
 
 export const analyzeRouteWithGemini = async (stats: TrackStats, sectors: PlannedSector[], targetTimeSeconds: number): Promise<string> => {
   try {
@@ -11,7 +12,7 @@ export const analyzeRouteWithGemini = async (stats: TrackStats, sectors: Planned
       id: s.id,
       km: `${(s.startDist/1000).toFixed(1)}-${(s.endDist/1000).toFixed(1)}`,
       grad: s.avgGradient.toFixed(1) + "%",
-      targetPace: formatPace(s.targetPaceSeconds)
+      targetPace: formatPace(s.targetPaceSeconds, 'metric')
     }));
 
     const prompt = `

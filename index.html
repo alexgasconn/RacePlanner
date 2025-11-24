@@ -6,6 +6,9 @@
     <title>Elevate - GPX Analyzer</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+     crossorigin=""/>
     <style>
       body {
         font-family: 'Inter', sans-serif;
@@ -27,6 +30,26 @@
       ::-webkit-scrollbar-thumb:hover {
         background: #64748b; 
       }
+      /* Map specific overrides */
+      .leaflet-container {
+        background: #0f172a;
+        font-family: 'Inter', sans-serif;
+      }
+      .leaflet-bar a {
+        background-color: #1e293b !important;
+        color: #fff !important;
+        border-bottom: 1px solid #334155 !important;
+      }
+      .leaflet-bar a:hover {
+        background-color: #334155 !important;
+      }
+      .leaflet-control-attribution {
+        background: rgba(15, 23, 42, 0.8) !important;
+        color: #94a3b8 !important;
+      }
+      .leaflet-control-attribution a {
+        color: #60a5fa !important;
+      }
     </style>
   <script type="importmap">
 {
@@ -37,7 +60,8 @@
     "lucide-react": "https://aistudiocdn.com/lucide-react@^0.554.0",
     "react-markdown": "https://aistudiocdn.com/react-markdown@^10.1.0",
     "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
-    "recharts": "https://aistudiocdn.com/recharts@^3.5.0"
+    "recharts": "https://aistudiocdn.com/recharts@^3.5.0",
+    "leaflet": "https://unpkg.com/leaflet@1.9.4/dist/leaflet-src.esm.js"
   }
 }
 </script>

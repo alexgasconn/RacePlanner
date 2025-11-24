@@ -1,15 +1,17 @@
 import React, { useState, useMemo } from 'react';
-import { PlannedSector } from '../types';
-import { ArrowUpRight, ArrowDownRight, Minus, ArrowRight, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
-import { formatDuration, formatPace } from '../utils/geoUtils';
+import { PlannedSector, UnitSystem } from '../types';
+import { ArrowUpRight, ArrowDownRight, Minus, ArrowRight, ChevronUp, ChevronDown, ChevronsUpDown, Droplets } from 'lucide-react';
+import { formatDuration } from '../utils/geoUtils';
+import { formatDistance, formatElevation, formatPace } from '../utils/unitUtils';
 
 interface SectorListProps {
   sectors: PlannedSector[];
+  units: UnitSystem;
 }
 
 type SortKey = 'id' | 'dist' | 'gain' | 'loss' | 'combined' | 'grade' | 'time' | 'pace' | 'accum';
 
-const SectorList: React.FC<SectorListProps> = ({ sectors }) => {
+const SectorList: React.FC<SectorListProps> = ({ sectors, units }) => {
   const [sortKey, setSortKey] = useState<SortKey>('id');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
@@ -83,7 +85,7 @@ const SectorList: React.FC<SectorListProps> = ({ sectors }) => {
           <thead className="sticky top-0 z-20 shadow-xl border-b border-slate-600">
             <tr>
               <SortHeader label="#" id="id" align="left" />
-              <SortHeader label="Km Range" id="dist" align="left" />
+              <SortHeader label={units === 'metric' ? "Km Range" : "Mile Range"} id="dist" align="left" />
               <SortHeader label="Gain" id="gain" />
               <SortHeader label="Loss" id="loss" />
               <SortHeader label="Grade" id="grade" />
@@ -96,26 +98,31 @@ const SectorList: React.FC<SectorListProps> = ({ sectors }) => {
             {sortedSectors.map((sector) => (
               <tr key={sector.id} className="hover:bg-slate-700/60 transition-colors group">
                 <td className="px-6 py-5 font-mono text-slate-500 group-hover:text-white transition-colors text-lg font-bold">
-                  {sector.id}
+                  {sector.hasAidStation ? (
+                    <div className="flex items-center gap-2">
+                         <span>{sector.id}</span>
+                         <Droplets className="w-4 h-4 text-blue-400" />
+                    </div>
+                  ) : sector.id}
                 </td>
                 
                 <td className="px-6 py-5 text-slate-300 font-mono text-lg">
                   <div className="flex items-center gap-3">
-                    <span className="opacity-60">{(sector.startDist / 1000).toFixed(1)}</span>
+                    <span className="opacity-60">{formatDistance(sector.startDist, units)}</span>
                     <ArrowRight className="w-4 h-4 text-slate-600"/>
-                    <span className="font-bold text-white">{(sector.endDist / 1000).toFixed(1)}</span>
+                    <span className="font-bold text-white">{formatDistance(sector.endDist, units)}</span>
                   </div>
                 </td>
 
                 <td className="px-6 py-5 text-right font-mono text-lg font-medium">
                   {sector.elevationGain > 0 ? (
-                    <span className="text-orange-400 bg-orange-400/10 px-2 py-1 rounded">+{Math.round(sector.elevationGain)}m</span>
+                    <span className="text-orange-400 bg-orange-400/10 px-2 py-1 rounded">+{formatElevation(sector.elevationGain, units)}{units === 'metric' ? 'm' : 'ft'}</span>
                   ) : <span className="text-slate-600">-</span>}
                 </td>
 
                 <td className="px-6 py-5 text-right font-mono text-lg font-medium">
                    {sector.elevationLoss > 0 ? (
-                     <span className="text-emerald-400 bg-emerald-400/10 px-2 py-1 rounded">-{Math.round(sector.elevationLoss)}m</span>
+                     <span className="text-emerald-400 bg-emerald-400/10 px-2 py-1 rounded">-{formatElevation(sector.elevationLoss, units)}{units === 'metric' ? 'm' : 'ft'}</span>
                    ) : <span className="text-slate-600">-</span>}
                 </td>
 
@@ -131,7 +138,7 @@ const SectorList: React.FC<SectorListProps> = ({ sectors }) => {
                 </td>
 
                 <td className="px-6 py-5 text-right font-mono text-blue-300 text-xl font-bold">
-                  {formatPace(sector.targetPaceSeconds)}
+                  {formatPace(sector.targetPaceSeconds, units)}
                 </td>
 
                 <td className="px-6 py-5 text-right font-mono text-white text-lg font-bold border-l border-slate-700/50 bg-slate-900/30">

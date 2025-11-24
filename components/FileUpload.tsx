@@ -1,4 +1,3 @@
-
 import React, { ChangeEvent, useState } from 'react';
 import { UploadCloud, FolderOpen, ChevronDown, CheckCircle2 } from 'lucide-react';
 
@@ -31,17 +30,40 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessing }) =
   const handleSampleLoad = async () => {
     if (!selectedSample) return;
     setLoadingSample(true);
-    
+
     try {
-        const response = await fetch(`/data/${selectedSample}`);
-        console.log(response);
-        if (!response.ok) throw new Error('File not found');
-        const blob = await response.blob();
-        const file = new File([blob], selectedSample, { type: 'application/gpx+xml' });
-        onFileSelect(file);
+      // try several possible URLs where the /data/ folder might be served from
+      const candidates = [
+        `/data/${encodeURIComponent(selectedSample)}`,
+        `${window.location.origin}/data/${encodeURIComponent(selectedSample)}`,
+        `${process.env.PUBLIC_URL || ''}/data/${encodeURIComponent(selectedSample)}`,
+        `./data/${encodeURIComponent(selectedSample)}`
+      ];
+
+      let blob = null;
+      for (const url of candidates) {
+        try {
+          const response = await fetch(url);
+          if (!response.ok) continue;
+          blob = await response.blob();
+          break;
+        } catch (err) {
+          // try next candidate
+          continue;
+        }
+      }
+
+      if (!blob) throw new Error('File not found in any candidate path');
+
+      // fallback to a sensible mime if server doesn't provide one
+      const mime = blob.type || 'application/gpx+xml';
+      const file = new File([blob], selectedSample, { type: mime });
+      onFileSelect(file);
     } catch (e) {
-        alert(`Could not load ${selectedSample}. Ensure the file exists in the /data/ folder of your project.`);
-        setLoadingSample(false);
+      alert(`Could not load ${selectedSample}. Ensure the file exists in the /data/ folder and is served by your dev server or production hosting.`);
+      console.error(e);
+    } finally {
+      setLoadingSample(false);
     }
   };
 
@@ -73,49 +95,49 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessing }) =
 
       {/* Data Folder Loader */}
       <div className="border-t border-slate-700 pt-8">
-         <h4 className="text-slate-400 font-bold uppercase text-xs tracking-wider mb-4 flex items-center gap-2">
-            <FolderOpen className="w-4 h-4 text-orange-400"/> Load from Project Data Folder
-         </h4>
-         
-         <div className="bg-slate-800/80 p-6 rounded-2xl border border-slate-700 shadow-xl">
-             <div className="flex flex-col sm:flex-row gap-4">
-                 <div className="relative flex-1">
-                     <select
-                        value={selectedSample}
-                        onChange={(e) => setSelectedSample(e.target.value)}
-                        className="w-full appearance-none bg-slate-900 border border-slate-600 rounded-xl px-4 py-3.5 pr-10 text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none cursor-pointer hover:bg-slate-900/80 transition-colors font-medium"
-                     >
-                         <option value="" disabled>Select a route...</option>
-                         {SAMPLE_ROUTES.map(route => (
-                             <option key={route.file} value={route.file}>
-                                 {route.name}
-                             </option>
-                         ))}
-                     </select>
-                     <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-slate-400">
-                         <ChevronDown className="w-4 h-4" />
-                     </div>
-                 </div>
-                 
-                 <button 
-                    onClick={handleSampleLoad}
-                    disabled={!selectedSample || isProcessing || loadingSample}
-                    className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-8 py-3.5 rounded-xl font-bold transition-all shadow-lg shadow-blue-900/20 flex items-center justify-center gap-2 min-w-[140px]"
-                 >
-                    {loadingSample ? (
-                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    ) : (
-                        <>
-                            <span>Load</span>
-                            <CheckCircle2 className="w-4 h-4" />
-                        </>
-                    )}
-                 </button>
-             </div>
-             <p className="text-[11px] text-slate-500 mt-3 text-center">
-                Select a file to load directly from the <code>data/</code> directory.
-             </p>
-         </div>
+        <h4 className="text-slate-400 font-bold uppercase text-xs tracking-wider mb-4 flex items-center gap-2">
+          <FolderOpen className="w-4 h-4 text-orange-400" /> Load from Project Data Folder
+        </h4>
+
+        <div className="bg-slate-800/80 p-6 rounded-2xl border border-slate-700 shadow-xl">
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="relative flex-1">
+              <select
+                value={selectedSample}
+                onChange={(e) => setSelectedSample(e.target.value)}
+                className="w-full appearance-none bg-slate-900 border border-slate-600 rounded-xl px-4 py-3.5 pr-10 text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none cursor-pointer hover:bg-slate-900/80 transition-colors font-medium"
+              >
+                <option value="" disabled>Select a route...</option>
+                {SAMPLE_ROUTES.map(route => (
+                  <option key={route.file} value={route.file}>
+                    {route.name}
+                  </option>
+                ))}
+              </select>
+              <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-slate-400">
+                <ChevronDown className="w-4 h-4" />
+              </div>
+            </div>
+
+            <button
+              onClick={handleSampleLoad}
+              disabled={!selectedSample || isProcessing || loadingSample}
+              className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-8 py-3.5 rounded-xl font-bold transition-all shadow-lg shadow-blue-900/20 flex items-center justify-center gap-2 min-w-[140px]"
+            >
+              {loadingSample ? (
+                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : (
+                <>
+                  <span>Load</span>
+                  <CheckCircle2 className="w-4 h-4" />
+                </>
+              )}
+            </button>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-3 text-center">
+            Select a file to load directly from the <code>data/</code> directory.
+          </p>
+        </div>
       </div>
     </div>
   );

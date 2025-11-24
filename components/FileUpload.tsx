@@ -6,73 +6,100 @@ interface FileUploadProps {
   isProcessing: boolean;
 }
 
-// NOTE: Since this is a client-side app, we cannot dynamically read the filesystem.
-// This list acts as the manifest for files located in the/data/ folder.
-const SAMPLE_ROUTES = [
-  { name: 'Marathon Course (Road)', file: 'marathon.gpx' },
-  { name: 'Mountain Trail 25k', file: 'trail.gpx' },
-  { name: 'City Half Marathon', file: 'half.gpx' },
-  { name: 'Technical Skyrace', file: 'skyrace.gpx' },
-  { name: 'Ultra Distance 100k', file: 'ultra.gpx' },
-  { name: 'Local 10k Loop', file: '10k.gpx' }
-];
-
 const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessing }) => {
   const [selectedSample, setSelectedSample] = useState('');
   const [loadingSample, setLoadingSample] = useState(false);
+  const [dataFiles, setDataFiles] = useState<string[]>([]); // filenames discovered in /data/
 
-  // --- NEW: auto-load first existing file from /data/ on mount ---
+  // Try multiple candidate URLs to list files in /data/
+  async function fetchDataListing(): Promise<string[]> {
+    const candidates = [
+      '/data/index.json',
+      '/data/manifest.json',
+      '/data/', // may return directory HTML if server lists it
+      `${window.location.origin}/data/`,
+      `${process.env.PUBLIC_URL || ''}/data/`
+    ];
+
+    for (const base of candidates) {
+      try {
+        const resp = await fetch(base, { method: 'GET' });
+        if (!resp.ok) continue;
+        const ct = resp.headers.get('content-type') || '';
+        // JSON manifest
+        if (ct.includes('application/json')) {
+          const j = await resp.json();
+          // accept array of filenames or objects with file props
+          if (Array.isArray(j)) return j.filter(f => typeof f === 'string' && f.toLowerCase().endsWith('.gpx'));
+          if (Array.isArray(j.files)) return j.files.filter((f: any) => typeof f === 'string' && f.toLowerCase().endsWith('.gpx'));
+        }
+        // HTML directory listing -> parse anchors
+        if (ct.includes('text/html')) {
+          const text = await resp.text();
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(text, 'text/html');
+          const links = Array.from(doc.querySelectorAll('a')).map(a => a.getAttribute('href') || '');
+          const gpxs = links
+            .map(h => {
+              try { return decodeURIComponent(h.split('?')[0].split('#')[0]); } catch { return h; }
+            })
+            .filter(h => h && h.toLowerCase().endsWith('.gpx'))
+            .map(h => h.replace(/^\/+/, '')); // normalize
+          if (gpxs.length) return gpxs;
+        }
+        // fallback: if base is folder and server served a single file listing as text
+        const txt = await resp.text();
+        const matches = (txt.match(/[\w\-\s%]+\.(gpx)/gi) || []).map(s => s.trim());
+        if (matches.length) return matches;
+      } catch (e) {
+        // try next candidate
+        continue;
+      }
+    }
+    return [];
+  }
+
+  // --- NEW: discover files and auto-load first file from /data/ on mount ---
   useEffect(() => {
     if (isProcessing) return;
     let cancelled = false;
 
     (async () => {
-      for (const route of SAMPLE_ROUTES) {
-        const filename = route.file;
-        const candidates = [
-          `/data/${encodeURIComponent(filename)}`,
-          `${window.location.origin}/data/${encodeURIComponent(filename)}`,
-          `${process.env.PUBLIC_URL || ''}/data/${encodeURIComponent(filename)}`,
-          `./data/${encodeURIComponent(filename)}`
-        ];
-        for (const url of candidates) {
-          try {
-            // use HEAD first to quickly check existence (some hosts may not allow HEAD)
-            const headResp = await fetch(url, { method: 'HEAD' });
-            if (!headResp.ok) {
-              // try GET directly if HEAD not allowed or not ok
-              const getResp = await fetch(url);
-              if (!getResp.ok) continue;
-              const blob = await getResp.blob();
-              if (cancelled) return;
+      const files = await fetchDataListing();
+      if (cancelled) return;
+      setDataFiles(files);
+      if (files.length > 0) {
+        const first = files[0];
+        setSelectedSample(first);
+        // auto-load first file
+        try {
+          const urlCandidates = [
+            `/data/${encodeURIComponent(first)}`,
+            `${window.location.origin}/data/${encodeURIComponent(first)}`,
+            `${process.env.PUBLIC_URL || ''}/data/${encodeURIComponent(first)}`,
+            `./data/${encodeURIComponent(first)}`
+          ];
+          for (const url of urlCandidates) {
+            try {
+              const r = await fetch(url);
+              if (!r.ok) continue;
+              const blob = await r.blob();
               const mime = blob.type || 'application/gpx+xml';
-              const file = new File([blob], filename, { type: mime });
-              setSelectedSample(filename);
+              const file = new File([blob], first, { type: mime });
               onFileSelect(file);
               return;
-            } else {
-              // HEAD ok -> fetch the blob
-              const resp = await fetch(url);
-              if (!resp.ok) continue;
-              const blob = await resp.blob();
-              if (cancelled) return;
-              const mime = blob.type || 'application/gpx+xml';
-              const file = new File([blob], filename, { type: mime });
-              setSelectedSample(filename);
-              onFileSelect(file);
-              return;
+            } catch {
+              continue;
             }
-          } catch (err) {
-            // try next candidate
-            continue;
           }
+        } catch {
+          // ignore auto-load failure
         }
       }
     })();
 
     return () => { cancelled = true; };
   }, [onFileSelect, isProcessing]);
-  // --- END NEW ---
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -84,7 +111,6 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessing }) =
     if (!selectedSample) return;
     setLoadingSample(true);
     try {
-      // existing candidate-fetch logic (kept for manual loads)
       const candidates = [
         `/data/${encodeURIComponent(selectedSample)}`,
         `${window.location.origin}/data/${encodeURIComponent(selectedSample)}`,
@@ -92,7 +118,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessing }) =
         `./data/${encodeURIComponent(selectedSample)}`
       ];
 
-      let blob = null;
+      let blob: Blob | null = null;
       for (const url of candidates) {
         try {
           const response = await fetch(url);
@@ -158,11 +184,15 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileSelect, isProcessing }) =
                 className="w-full appearance-none bg-slate-900 border border-slate-600 rounded-xl px-4 py-3.5 pr-10 text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none cursor-pointer hover:bg-slate-900/80 transition-colors font-medium"
               >
                 <option value="" disabled>Select a route...</option>
-                {SAMPLE_ROUTES.map(route => (
-                  <option key={route.file} value={route.file}>
-                    {route.name}
-                  </option>
-                ))}
+                {dataFiles.length === 0 ? (
+                  <option value="" disabled>No files found in /data/</option>
+                ) : (
+                  dataFiles.map(file => (
+                    <option key={file} value={file}>
+                      {file}
+                    </option>
+                  ))
+                }
               </select>
               <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-slate-400">
                 <ChevronDown className="w-4 h-4" />

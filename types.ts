@@ -29,6 +29,7 @@ export interface PlannedSector extends Sector {
 }
 
 export interface TrackStats {
+  name?: string; // Parsed from GPX <name>
   totalDistance: number; // meters
   totalElevationGain: number; // meters
   totalElevationLoss: number; // meters

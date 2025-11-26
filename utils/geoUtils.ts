@@ -1,10 +1,13 @@
 
-import { GPXPoint, Sector, AnalysisResult, PlannedSector, TrackStats, AidStation, UnitSystem } from '../types';
+import { GPXPoint, Sector, PlannedSector, TrackStats, AidStation, UnitSystem } from '../types';
 import { KM_TO_MILES } from './unitUtils';
 
-// Haversine formula to calculate distance between two lat/lon points in meters
+// --- GEOMETRY HELPERS ---
+
+const deg2rad = (deg: number): number => deg * (Math.PI / 180);
+
 export const getDistanceFromLatLonInMeters = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-  const R = 6371e3; // Radius of the earth in km converted to meters
+  const R = 6371e3; 
   const dLat = deg2rad(lat2 - lat1);
   const dLon = deg2rad(lon2 - lon1);
   const a =
@@ -12,112 +15,100 @@ export const getDistanceFromLatLonInMeters = (lat1: number, lon1: number, lat2: 
     Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
     Math.sin(dLon / 2) * Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  const d = R * c; // Distance in meters
-  return d;
+  return R * c;
 };
 
-const deg2rad = (deg: number): number => {
-  return deg * (Math.PI / 180);
-};
+// --- SIGNAL PROCESSING (SMOOTHING) ---
 
-// Interpolates a point at a specific distance between two known points
-const interpolatePoint = (p1: GPXPoint, p2: GPXPoint, targetDist: number): GPXPoint => {
-  if (p1.distFromStart === p2.distFromStart) return p1;
+// 1. Spatial Filter: Remove points that are too close (GPS noise/jitter)
+// Using 8m threshold to filter out "finish line standing around" noise
+const filterNoisyPoints = (points: GPXPoint[], minDistanceMeters: number = 8): GPXPoint[] => {
+    if (points.length < 2) return points;
+    
+    const filtered: GPXPoint[] = [points[0]];
+    let lastPoint = points[0];
 
-  const totalDist = p2.distFromStart - p1.distFromStart;
-  const fraction = (targetDist - p1.distFromStart) / totalDist;
-  
-  const ele = p1.ele + (p2.ele - p1.ele) * fraction;
-  const lat = p1.lat + (p2.lat - p1.lat) * fraction;
-  const lon = p1.lon + (p2.lon - p1.lon) * fraction;
-  
-  // Interpolate time if available
-  let time: Date | undefined = undefined;
-  if (p1.time && p2.time) {
-      const timeDiff = p2.time.getTime() - p1.time.getTime();
-      time = new Date(p1.time.getTime() + timeDiff * fraction);
-  }
-
-  return {
-    lat,
-    lon,
-    ele,
-    time,
-    distFromStart: targetDist
-  };
-};
-
-// Finds or creates a point at an exact cumulative distance
-const getPointAt = (points: GPXPoint[], targetDist: number, startIndexHint: number = 0): { point: GPXPoint, index: number } => {
-    // Check bounds
-    if (points.length === 0) throw new Error("No points provided");
-    if (targetDist <= points[0].distFromStart) return { point: { ...points[0], distFromStart: targetDist }, index: 0 };
-    const lastIdx = points.length - 1;
-    if (targetDist >= points[lastIdx].distFromStart) return { point: { ...points[lastIdx], distFromStart: targetDist }, index: lastIdx };
-
-    // Search
-    for (let i = startIndexHint; i < points.length; i++) {
-        if (points[i].distFromStart >= targetDist) {
-            const pAfter = points[i];
-            
-            // Exact match
-            if (Math.abs(pAfter.distFromStart - targetDist) < 0.001) {
-                return { point: pAfter, index: i };
-            }
-
-            const pBefore = points[i - 1]; // Safe as we checked lower bound earlier
-            return { 
-                point: interpolatePoint(pBefore, pAfter, targetDist),
-                index: i // Return index of the point *after* or at the target
-            };
+    for (let i = 1; i < points.length; i++) {
+        const dist = getDistanceFromLatLonInMeters(lastPoint.lat, lastPoint.lon, points[i].lat, points[i].lon);
+        // Only keep point if it has moved enough, or if it's the very last point
+        if (dist >= minDistanceMeters || i === points.length - 1) {
+            filtered.push(points[i]);
+            lastPoint = points[i];
         }
     }
-    return { point: points[lastIdx], index: lastIdx };
+    return filtered;
 };
 
-// Purely parses the file into points and calculates global stats
+// 2. Elevation Smoothing: Weighted Moving Average [0.25, 0.5, 0.25]
+const smoothElevation = (points: GPXPoint[]): GPXPoint[] => {
+    if (points.length < 3) return points;
+    
+    const smoothed = [...points];
+    
+    // We skip first and last index for the window
+    for (let i = 1; i < points.length - 1; i++) {
+        const prev = points[i - 1].ele;
+        const curr = points[i].ele;
+        const next = points[i + 1].ele;
+        
+        // Weighted average favoring the current point
+        smoothed[i].ele = (prev * 0.2 + curr * 0.6 + next * 0.2);
+    }
+    return smoothed;
+};
+
+// Re-calculates cumulative distance after filtering/modification
+const recalculateDistances = (points: GPXPoint[]): GPXPoint[] => {
+    let totalDist = 0;
+    const result = [ { ...points[0], distFromStart: 0 } ];
+    
+    for (let i = 1; i < points.length; i++) {
+        const d = getDistanceFromLatLonInMeters(
+            points[i-1].lat, points[i-1].lon,
+            points[i].lat, points[i].lon
+        );
+        totalDist += d;
+        result.push({ ...points[i], distFromStart: totalDist });
+    }
+    return result;
+};
+
+
+// --- PARSING ---
+
 export const parseGPXRaw = async (fileContent: string): Promise<{ points: GPXPoint[], stats: TrackStats }> => {
   const parser = new DOMParser();
   const xmlDoc = parser.parseFromString(fileContent, "text/xml");
   const trkpts = xmlDoc.getElementsByTagName("trkpt");
 
-  if (trkpts.length === 0) {
-    throw new Error("No track points found in GPX file.");
-  }
+  // Extract Name and clean it up
+  const nameNode = xmlDoc.getElementsByTagName("name")[0];
+  let trackName = nameNode ? nameNode.textContent || "Unknown Route" : "Unknown Route";
+  // Clean up: Replace hyphens/underscores with spaces, trim
+  trackName = trackName.replace(/[-_]/g, ' ').replace(/\.gpx$/i, '').trim(); 
 
-  const points: GPXPoint[] = [];
-  let totalDist = 0;
+  if (trkpts.length === 0) throw new Error("No track points found in GPX file.");
 
-  // 1. Parse raw points and calculate cumulative distance
+  let rawPoints: GPXPoint[] = [];
+
+  // 1. Basic Extraction
   for (let i = 0; i < trkpts.length; i++) {
     const pt = trkpts[i];
-    const lat = parseFloat(pt.getAttribute("lat") || "0");
-    const lon = parseFloat(pt.getAttribute("lon") || "0");
-    const ele = parseFloat(pt.getElementsByTagName("ele")[0]?.textContent || "0");
-    const timeStr = pt.getElementsByTagName("time")[0]?.textContent;
-    const time = timeStr ? new Date(timeStr) : undefined;
-
-    let distFromPrev = 0;
-    if (i > 0) {
-      distFromPrev = getDistanceFromLatLonInMeters(
-        points[i - 1].lat,
-        points[i - 1].lon,
-        lat,
-        lon
-      );
-    }
-    totalDist += distFromPrev;
-
-    points.push({
-      lat,
-      lon,
-      ele,
-      time,
-      distFromStart: totalDist
+    rawPoints.push({
+      lat: parseFloat(pt.getAttribute("lat") || "0"),
+      lon: parseFloat(pt.getAttribute("lon") || "0"),
+      ele: parseFloat(pt.getElementsByTagName("ele")[0]?.textContent || "0"),
+      time: pt.getElementsByTagName("time")[0]?.textContent ? new Date(pt.getElementsByTagName("time")[0]?.textContent!) : undefined,
+      distFromStart: 0 // placeholder
     });
   }
 
-  // 2. Calculate Global Stats
+  // 2. Apply Smoothing Pipeline
+  const spatiallyFiltered = filterNoisyPoints(rawPoints, 8.0); // 8 meter threshold
+  const elevationSmoothed = smoothElevation(spatiallyFiltered);
+  const points = recalculateDistances(elevationSmoothed);
+
+  // 3. Stats Calculation
   let totalGain = 0;
   let totalLoss = 0;
   let maxEle = -Infinity;
@@ -126,7 +117,6 @@ export const parseGPXRaw = async (fileContent: string): Promise<{ points: GPXPoi
   points.forEach((p, i) => {
     if (p.ele > maxEle) maxEle = p.ele;
     if (p.ele < minEle) minEle = p.ele;
-
     if (i > 0) {
       const diff = p.ele - points[i - 1].ele;
       if (diff > 0) totalGain += diff;
@@ -137,7 +127,8 @@ export const parseGPXRaw = async (fileContent: string): Promise<{ points: GPXPoi
   return {
     points,
     stats: {
-      totalDistance: totalDist,
+      name: trackName,
+      totalDistance: points[points.length - 1].distFromStart,
       totalElevationGain: totalGain,
       totalElevationLoss: totalLoss,
       maxElevation: maxEle,
@@ -147,72 +138,124 @@ export const parseGPXRaw = async (fileContent: string): Promise<{ points: GPXPoi
   };
 };
 
+// --- SECTOR GENERATION ---
+
+const getInterpolatedPoint = (p1: GPXPoint, p2: GPXPoint, targetDist: number): GPXPoint => {
+    const totalDist = p2.distFromStart - p1.distFromStart;
+    const ratio = totalDist === 0 ? 0 : (targetDist - p1.distFromStart) / totalDist;
+    return {
+        lat: p1.lat + (p2.lat - p1.lat) * ratio,
+        lon: p1.lon + (p2.lon - p1.lon) * ratio,
+        ele: p1.ele + (p2.ele - p1.ele) * ratio,
+        distFromStart: targetDist,
+        time: undefined 
+    };
+};
+
 export const generateSectors = (points: GPXPoint[], sectorSize: number): Sector[] => {
   const sectors: Sector[] = [];
   const totalDist = points[points.length - 1].distFromStart;
   const numSectors = Math.ceil(totalDist / sectorSize);
   
-  let searchHintIndex = 0;
+  let currentPIdx = 0;
 
   for (let i = 0; i < numSectors; i++) {
       const startDist = i * sectorSize;
       const endDist = Math.min((i + 1) * sectorSize, totalDist);
-
-      // Interpolate Start and End points for this specific sector
-      const startResult = getPointAt(points, startDist, searchHintIndex);
-      // Update hint to speed up next search (start looking from where we found this point)
-      searchHintIndex = Math.max(0, startResult.index - 1);
       
-      const endResult = getPointAt(points, endDist, searchHintIndex);
+      const sectorPoints: GPXPoint[] = [];
 
-      // Collect intermediate points that strictly fall within the sector
-      const intermediatePoints = points.filter(p => p.distFromStart > startDist && p.distFromStart < endDist);
+      while (currentPIdx < points.length - 1 && points[currentPIdx + 1].distFromStart <= startDist) {
+          currentPIdx++;
+      }
+      
+      if (Math.abs(points[currentPIdx].distFromStart - startDist) < 0.1) {
+           sectorPoints.push(points[currentPIdx]);
+      } else if (currentPIdx < points.length - 1) {
+           sectorPoints.push(getInterpolatedPoint(points[currentPIdx], points[currentPIdx+1], startDist));
+      }
 
-      // Construct the precise point list for this sector
-      const sectorPoints = [startResult.point, ...intermediatePoints, endResult.point];
+      let scanIdx = currentPIdx;
+      while (scanIdx < points.length) {
+          if (points[scanIdx].distFromStart > startDist && points[scanIdx].distFromStart < endDist) {
+              sectorPoints.push(points[scanIdx]);
+          }
+          if (points[scanIdx].distFromStart >= endDist) break;
+          scanIdx++;
+      }
 
-      sectors.push(calculateSectorStats(i + 1, sectorPoints, startDist, endDist));
+      if (scanIdx < points.length && scanIdx > 0) {
+           if (Math.abs(points[scanIdx].distFromStart - endDist) < 0.1) {
+                sectorPoints.push(points[scanIdx]);
+           } else {
+                sectorPoints.push(getInterpolatedPoint(points[scanIdx-1], points[scanIdx], endDist));
+           }
+      } else if (scanIdx === points.length) {
+          sectorPoints.push(points[points.length-1]);
+      }
+
+      let gain = 0;
+      let loss = 0;
+      let max = -Infinity;
+      let min = Infinity;
+      
+      sectorPoints.forEach((p, idx) => {
+          if (p.ele > max) max = p.ele;
+          if (p.ele < min) min = p.ele;
+          if (idx > 0) {
+              const d = p.ele - sectorPoints[idx-1].ele;
+              if (d > 0) gain += d;
+              else loss += Math.abs(d);
+          }
+      });
+      
+      if (max === -Infinity) max = 0;
+      if (min === Infinity) min = 0;
+
+      const distDiff = endDist - startDist;
+      const netChange = sectorPoints[sectorPoints.length - 1].ele - sectorPoints[0].ele;
+      const avgGradient = distDiff > 0 ? (netChange / distDiff) * 100 : 0;
+
+      sectors.push({
+          id: i + 1,
+          startDist,
+          endDist,
+          elevationGain: gain,
+          elevationLoss: loss,
+          avgGradient,
+          maxEle: max,
+          minEle: min,
+          points: sectorPoints
+      });
   }
   return sectors;
 };
 
-const calculateSectorStats = (id: number, points: GPXPoint[], startDist: number, endDist: number): Sector => {
-  let gain = 0;
-  let loss = 0;
-  let max = -Infinity;
-  let min = Infinity;
 
-  points.forEach((p, i) => {
-    if (p.ele > max) max = p.ele;
-    if (p.ele < min) min = p.ele;
-    if (i > 0) {
-      const diff = p.ele - points[i - 1].ele;
-      if (diff > 0) gain += diff;
-      else loss += Math.abs(diff);
+// --- PROFESSIONAL PACING ENGINE (BIO-METRIC) ---
+
+const getMetabolicCost = (grad: number): number => {
+    // Minetti-based cost function approximated for trail running
+    if (grad >= 0) {
+        // Uphill: 1 + 3.0x + 12x^2
+        return 1 + (grad * 3.0) + (grad * grad * 12);
+    } else {
+        // Downhill: Optimized for controlled descent
+        const g = Math.abs(grad);
+        if (g < 0.15) return 1 - (g * 2.0); // Efficient
+        if (g < 0.25) return 0.7 + (g - 0.15) * 1.5; // Braking
+        return 0.85 + (g - 0.25) * 3.0; // Extreme braking
     }
-  });
-
-  if (max === -Infinity) max = points[0]?.ele || 0;
-  if (min === Infinity) min = points[0]?.ele || 0;
-
-  const distDiff = endDist - startDist;
-  const netEleChange = points[points.length - 1].ele - points[0].ele;
-  const avgGradient = distDiff > 0 ? (netEleChange / distDiff) * 100 : 0;
-
-  return {
-    id,
-    startDist,
-    endDist,
-    elevationGain: gain,
-    elevationLoss: loss,
-    avgGradient,
-    maxEle: max,
-    minEle: min,
-    points
-  };
 };
 
-// --- SMART ENDURANCE RACE PLANNING ---
+const getTechnicalityPenalty = (s: Sector): number => {
+    const dist = s.endDist - s.startDist;
+    if (dist === 0) return 0;
+    const oscillation = (s.elevationGain + s.elevationLoss) / dist;
+    const netGrade = Math.abs(s.avgGradient / 100);
+    const noise = Math.max(0, oscillation - netGrade);
+    return noise * 0.5; 
+};
 
 export const calculateRacePlan = (
   sectors: Sector[], 
@@ -222,117 +265,169 @@ export const calculateRacePlan = (
 ): PlannedSector[] => {
   
   if (sectors.length === 0) return [];
-  const totalDist = sectors[sectors.length - 1].endDist;
 
-  // 1. Identify "stopped time" in aid stations and subtract from running budget
+  // 1. Handle Aid Stations
   let totalStoppedTime = 0;
-  const aidStationMeters = aidStations.map(station => ({
-     // Convert station distance to meters for matching
-     distMeters: units === 'metric' ? station.distanceFromStart * 1000 : (station.distanceFromStart / KM_TO_MILES) * 1000,
-     penalty: station.penaltySeconds
+  const aidStationMeters = aidStations.map(s => ({
+     distMeters: units === 'metric' ? s.distanceFromStart * 1000 : (s.distanceFromStart / KM_TO_MILES) * 1000,
+     penalty: s.penaltySeconds
   }));
-
-  // Map stations to sectors
-  const stationAssignments: Record<number, number> = {}; // sectorId -> seconds
-  sectors.forEach(sector => {
-      aidStationMeters.forEach(station => {
-          if (station.distMeters > sector.startDist && station.distMeters <= sector.endDist) {
-              stationAssignments[sector.id] = (stationAssignments[sector.id] || 0) + station.penalty;
-              totalStoppedTime += station.penalty;
+  
+  const stationAssignments: Record<number, number> = {};
+  sectors.forEach(s => {
+      aidStationMeters.forEach(as => {
+          if (as.distMeters > s.startDist && as.distMeters <= s.endDist) {
+              stationAssignments[s.id] = (stationAssignments[s.id] || 0) + as.penalty;
+              totalStoppedTime += as.penalty;
           }
       });
   });
 
-  // The time available to actually run the course
-  const availableRunningTime = Math.max(0, targetTimeSeconds - totalStoppedTime);
+  const runBudget = Math.max(0, targetTimeSeconds - totalStoppedTime);
+  const totalDist = sectors[sectors.length - 1].endDist;
+  const avgPacePerMeter = runBudget / totalDist;
 
-  // --- PHYSICS & PHYSIOLOGY CONSTANTS ---
-  const START_SOFT_RATIO = 0.05; // First 5% of race is warm-up
-  const START_SOFT_PENALTY = 0.05; // Run 5% slower during warm-up
-  const MAX_FATIGUE_LOSS = 0.15; // 15% efficiency loss by the end of race
-  const ANCHOR_BIAS = 0.35; // 35% of pace is anchored to the goal average, 65% varies by terrain
+  // 2. PASS 1: Calculate "Raw Effort Units" based on Terrain
   
-  // 2. Calculate Weighted Distance
-  // We calculate a "Cost Factor" for every meter of the race based on Grade + Fatigue + Strategy.
-  // WeightedDistance = Sum(SectorDistance * SectorCostFactor)
-  let totalWeightedDistance = 0;
-
-  const sectorWeights = sectors.map(s => {
+  let totalEffortUnits = 0;
+  
+  const analyzedSectors = sectors.map(s => {
       const dist = s.endDist - s.startDist;
-      const grade = s.avgGradient;
-      const sectorMidDist = (s.startDist + s.endDist) / 2;
-      const progressRatio = sectorMidDist / totalDist; // 0.0 to 1.0
+      const gradFraction = s.avgGradient / 100;
+      
+      let costMultiplier = getMetabolicCost(gradFraction);
+      const techPenalty = getTechnicalityPenalty(s);
+      costMultiplier += techPenalty;
 
-      // A. Terrain Physics (The "Smart GAP" Model)
-      let terrainCost = 1.0;
-      if (grade > 0) {
-          // Quadratic Uphill Penalty
-          // 2% -> ~7% slower. 5% -> ~20% slower. 10% -> ~50% slower.
-          // Formula: 1 + (g * 0.035) + (g^2 * 0.0015)
-          terrainCost = 1.0 + (grade * 0.035) + (Math.pow(grade, 2) * 0.0015);
+      // Altitude penalty
+      if (s.minEle > 2000) {
+          costMultiplier += (s.minEle - 2000) / 10000;
+      }
+      
+      // Base Effort = Distance * Difficulty
+      const effortUnits = dist * costMultiplier;
+      totalEffortUnits += effortUnits;
+
+      return { ...s, dist, costMultiplier, effortUnits };
+  });
+
+  // 3. PASS 2: Apply Strategy & Fatigue to calculate "Performance Factors"
+  
+  let accumulatedFatigueLoad = 0;
+  
+  const rawFactors = analyzedSectors.map((s, i) => {
+      const progress = s.endDist / totalDist; 
+      
+      // A. CONSERVATIVE STRATEGY CURVE
+      let strategy = 1.0;
+      
+      if (progress < 0.10) {
+          strategy = 0.96; // Start: Conservative (-4%)
+      } else if (progress < 0.30) {
+          strategy = 1.00; // Build: Base (0%)
+      } else if (progress < 0.85) {
+          strategy = 1.02; // Attack: Efficient Push (+2%)
       } else {
-          // Downhill Braking Physics
-          // You assume speed gains, but cap them because biomechanics limits max cadence/stride.
-          // -5% -> ~12% faster. -10% -> ~20% faster. 
-          // Cap at 0.75 (25% faster max) to prevent world-record suggestions on cliffs.
-          let boost = grade * 0.025;
-          if (boost < -0.25) boost = -0.25; // Max speed bonus cap
-          terrainCost = 1.0 + boost;
+          strategy = 1.01; // Finish: Maintain/Grit (+1%)
       }
 
-      // B. Strategy: Start Soft
-      let warmUpFactor = 1.0;
-      if (progressRatio < START_SOFT_RATIO) {
-          warmUpFactor = 1.0 + START_SOFT_PENALTY;
+      // B. PHYSIOLOGICAL FATIGUE
+      accumulatedFatigueLoad += s.effortUnits;
+      const relativeFatigue = accumulatedFatigueLoad / totalEffortUnits;
+      
+      let fatigue = 1.0;
+      if (relativeFatigue > 0.80) {
+          // Late race drift. Max penalty ~5% at finish line.
+          // This models glycogen depletion without "bonking"
+          fatigue = 1.0 - ((relativeFatigue - 0.80) * 0.25); 
       }
-
-      // C. Physiology: Fatigue Drift
-      // Linear drift from 0% to MAX_FATIGUE_LOSS
-      // At start (0.0): 1.0. At finish (1.0): 1.15
-      const fatigueFactor = 1.0 + (progressRatio * MAX_FATIGUE_LOSS);
-
-      // Combined Raw Factor (Physics + Physio)
-      const rawFactor = terrainCost * warmUpFactor * fatigueFactor;
-
-      // D. Anchoring
-      // We pull the raw wildly varying factor back towards 1.0 (Average Pace)
-      // This ensures we respect the specific goal time significantly
-      const finalCostFactor = (rawFactor * (1 - ANCHOR_BIAS)) + (1.0 * ANCHOR_BIAS);
-
-      totalWeightedDistance += dist * finalCostFactor;
+      
+      // Performance Factor = Strategy * Fatigue
+      // > 1.0 means running faster than terrain suggests
+      // < 1.0 means running slower
+      const performanceFactor = strategy * fatigue;
 
       return {
-          ...s,
-          finalCostFactor,
-          fatigueLevel: progressRatio * 100
+          performanceFactor,
+          relativeFatigue
       };
   });
 
-  // 3. Solve for Base Pace
-  // BasePace (sec/m) = AvailableTime / TotalWeightedDistance
-  // This represents the pace on a perfectly flat, fresh segment to achieve the goal.
-  const basePacePerMeter = availableRunningTime / totalWeightedDistance;
+  // 4. PASS 3: SMOOTHING "Performance Factors" (Trend Locking)
+  // We smooth the *intensity*, not the time. This fixes the short-sector bug.
+  
+  const smoothedFactors = rawFactors.map((curr, i, arr) => {
+      // LOCK-IN: The last sector strictly follows the trend of the previous one.
+      // This prevents end-of-race anomalies caused by GPS jitter or partial sectors.
+      if (i === arr.length - 1) {
+          return arr[i-1]?.performanceFactor || curr.performanceFactor;
+      }
 
-  // 4. Compile Plan
-  let currentAccumulatedTime = 0;
+      // Penultimate sector: heavier bias to previous
+      if (i === arr.length - 2) {
+          const prev = arr[i-1]?.performanceFactor || curr.performanceFactor;
+          return (prev * 0.7 + curr.performanceFactor * 0.3);
+      }
 
-  return sectorWeights.map(s => {
-      const dist = s.endDist - s.startDist;
+      // Standard smoothing (Moving Average)
+      const prev = arr[i-1]?.performanceFactor || curr.performanceFactor;
+      const next = arr[i+1]?.performanceFactor || curr.performanceFactor;
+      return (prev * 0.2 + curr.performanceFactor * 0.6 + next * 0.2);
+  });
+
+  // 5. PASS 4: Allocation & Safety Clamping
+  
+  // Weights determine how we split the Time Budget.
+  // Time = Effort / Performance.
+  // Weight = EffortUnits / SmoothedPerformance.
+  const weightedSectors = analyzedSectors.map((s, i) => {
+      const factor = smoothedFactors[i];
+      return {
+          ...s,
+          allocatedWeight: s.effortUnits / factor,
+          relativeFatigue: rawFactors[i].relativeFatigue
+      };
+  });
+
+  const totalAllocatedWeight = weightedSectors.reduce((sum, sec) => sum + sec.allocatedWeight, 0);
+  let accumulatedTime = 0;
+
+  return weightedSectors.map((s, _, allSectors) => {
+      // Normalize
+      const weightRatio = s.allocatedWeight / totalAllocatedWeight;
+      let sectorRunTime = runBudget * weightRatio;
+
+      // --- SAFETY CLAMP ---
+      // Prevent singularities (infinite pace) on short/flat sectors due to floating point math
+      const distMeters = s.dist;
+      // Handle edge case of 0 distance sector
+      if (distMeters < 1) {
+          return {
+             id: s.id, startDist: s.startDist, endDist: s.endDist, elevationGain: 0, elevationLoss: 0, 
+             avgGradient: 0, maxEle: s.maxEle, minEle: s.minEle, points: s.points, combinedElevationChange: 0,
+             targetDurationSeconds: 0, targetPaceSeconds: 0, accumulatedTimeSeconds: accumulatedTime, 
+             hasAidStation: false, fatigueLevel: 100
+          }
+      }
+
+      const calculatedPace = sectorRunTime / distMeters; // seconds per meter
+      const isExtremeTerrain = Math.abs(s.avgGradient) > 15;
       
-      // Calculate running duration for this sector
-      // Duration = Dist * CostFactor * BasePace
-      const runningDuration = dist * s.finalCostFactor * basePacePerMeter;
-
-      // Add Aid Station Penalty
+      // If terrain is not extreme, we shouldn't be walking or sprinting wildly vs average
+      if (!isExtremeTerrain) {
+          const minPaceAllowed = avgPacePerMeter * 0.4; // 2.5x faster than avg max
+          const maxPaceAllowed = avgPacePerMeter * 3.0; // 3.0x slower than avg max
+          
+          if (calculatedPace < minPaceAllowed) sectorRunTime = minPaceAllowed * distMeters;
+          if (calculatedPace > maxPaceAllowed) sectorRunTime = maxPaceAllowed * distMeters;
+      }
+      
       const stopTime = stationAssignments[s.id] || 0;
-      const totalDuration = runningDuration + stopTime;
-
-      currentAccumulatedTime += totalDuration;
-
-      // Target Pace: We display the "Running Pace" (intensity), not the "Stopped Pace".
-      // If we included stop time in pace, it would look like you are walking 20min/km at aid stations.
-      // The user wants to know how fast to run.
-      const runningPaceSecondsPerKm = runningDuration / (dist / 1000);
+      const totalTime = sectorRunTime + stopTime;
+      
+      accumulatedTime += totalTime;
+      
+      const visFatigue = Math.min(100, Math.round(s.relativeFatigue * 100));
 
       return {
           id: s.id,
@@ -345,11 +440,11 @@ export const calculateRacePlan = (
           minEle: s.minEle,
           points: s.points,
           combinedElevationChange: s.elevationGain + s.elevationLoss,
-          targetDurationSeconds: totalDuration, // Includes stop time for total ETA
-          targetPaceSeconds: runningPaceSecondsPerKm, // Pure running pace
-          accumulatedTimeSeconds: currentAccumulatedTime,
+          targetDurationSeconds: totalTime,
+          targetPaceSeconds: sectorRunTime / (s.dist / 1000), // Pace based on MOVING time
+          accumulatedTimeSeconds: accumulatedTime,
           hasAidStation: stopTime > 0,
-          fatigueLevel: s.fatigueLevel
+          fatigueLevel: visFatigue
       };
   });
 };

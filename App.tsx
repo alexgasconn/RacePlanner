@@ -1,6 +1,6 @@
 
 import React, { useState, useCallback } from 'react';
-import { Activity, Mountain, TrendingUp, RefreshCw, AlertCircle, Map as MapIcon, Zap, CloudSun, Layers } from 'lucide-react';
+import { Activity, Mountain, TrendingUp, RefreshCw, AlertCircle, Map as MapIcon, Zap, CloudSun, Layers, Flag } from 'lucide-react';
 import FileUpload from './components/FileUpload';
 import TimeSelection from './components/TimeSelection';
 import SectorList from './components/SectorList';
@@ -166,6 +166,14 @@ const App: React.FC = () => {
         {data && data.plan && (status === AnalysisStatus.COMPLETE || status === AnalysisStatus.ANALYZING_AI) && (
           <div className="space-y-8">
             
+            {/* --- RACE TITLE --- */}
+            {data.stats.name && data.stats.name !== "Unknown Route" && (
+                <div className="flex items-center gap-2 -mb-4">
+                    <Flag className="w-5 h-5 text-blue-500" />
+                    <h2 className="text-2xl font-bold text-white tracking-wide">{data.stats.name}</h2>
+                </div>
+            )}
+
             {/* --- SECTION: HEADLINE STATS --- */}
             <section className="grid grid-cols-2 lg:grid-cols-5 gap-4">
               <div className="bg-slate-800/60 border border-slate-700/60 p-6 rounded-2xl relative overflow-hidden group hover:border-slate-600 transition-colors">

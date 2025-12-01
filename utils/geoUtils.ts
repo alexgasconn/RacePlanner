@@ -103,10 +103,22 @@ export const parseGPXRaw = async (fileContent: string): Promise<{ points: GPXPoi
     });
   }
 
+  // --- LOGGING & OPTIMIZATION ---
+  const originalCount = rawPoints.length;
+  console.log(`%c[GPX] Original Points: ${originalCount}`, "color: #fbbf24; font-weight: bold; font-size: 12px;");
+  
+  if (originalCount > 5000) {
+      console.warn(`%c[GPX] High point count detected. Downsampling by 50% for performance...`, "color: #f87171;");
+      // Keep first, last, and every even index
+      rawPoints = rawPoints.filter((_, i) => i === 0 || i === rawPoints.length - 1 || i % 2 === 0);
+  }
+
   // 2. Apply Smoothing Pipeline
   const spatiallyFiltered = filterNoisyPoints(rawPoints, 8.0); // 8 meter threshold
   const elevationSmoothed = smoothElevation(spatiallyFiltered);
   const points = recalculateDistances(elevationSmoothed);
+
+  console.log(`%c[GPX] Final Analysis Points: ${points.length}`, "color: #34d399; font-weight: bold; font-size: 12px;");
 
   // 3. Stats Calculation
   let totalGain = 0;

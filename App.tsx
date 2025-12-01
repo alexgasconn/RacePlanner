@@ -4,12 +4,13 @@ import { Activity, Mountain, TrendingUp, RefreshCw, AlertCircle, Map as MapIcon,
 import FileUpload from './components/FileUpload';
 import TimeSelection from './components/TimeSelection';
 import SectorList from './components/SectorList';
-import { ElevationProfile, CourseDifficultyRibbon, PaceStrategyChart, GradientDistributionChart, PaceVarianceChart, TimeBankChart } from './components/Charts';
+import RouteInsights from './components/RouteInsights';
+import { ElevationProfile, PaceStrategyChart, GradientDistributionChart, PaceVarianceChart, TimeBankChart } from './components/Charts';
 import MapVisualizer from './components/MapVisualizer';
 import { parseGPXRaw, generateSectors, calculateRacePlan, formatDuration } from './utils/geoUtils';
 import { formatDistance, formatElevation, formatPace } from './utils/unitUtils';
 import { fetchRaceWeather, getWeatherDescription, getWeatherIcon } from './services/weatherService';
-import { AnalysisResult, AnalysisStatus, GPXPoint, TrackStats, UnitSystem, AidStation, MapMetric } from './types';
+import { AnalysisResult, AnalysisStatus, GPXPoint, TrackStats, UnitSystem, AidStation, MapMetric, SmoothingLevel } from './types';
 
 const App: React.FC = () => {
   const [status, setStatus] = useState<AnalysisStatus>(AnalysisStatus.IDLE);
@@ -24,6 +25,7 @@ const App: React.FC = () => {
   // Visualization State
   const [hoveredDist, setHoveredDist] = useState<number | null>(null);
   const [mapMetric, setMapMetric] = useState<MapMetric>('gradient');
+  const [smoothing, setSmoothing] = useState<SmoothingLevel>('raw');
 
   // Step 1: Handle File
   const handleFileSelect = useCallback(async (file: File) => {
@@ -175,7 +177,7 @@ const App: React.FC = () => {
             )}
 
             {/* --- SECTION: HEADLINE STATS --- */}
-            <section className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+            <section className={`grid grid-cols-2 ${data.weather ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-4`}>
               <div className="bg-slate-800/60 border border-slate-700/60 p-6 rounded-2xl relative overflow-hidden group hover:border-slate-600 transition-colors">
                 <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
                    <MapIcon className="w-16 h-16 text-blue-400" />
@@ -207,8 +209,8 @@ const App: React.FC = () => {
                 </div>
               </div>
               
-              {/* Weather Card */}
-              {data.weather ? (
+              {/* Weather Card - Only rendered if data exists */}
+              {data.weather && (
                   <div className="bg-gradient-to-br from-indigo-900/50 to-slate-800 border border-indigo-500/30 p-6 rounded-2xl relative overflow-hidden">
                      <div className="text-indigo-300 font-bold text-xs uppercase tracking-wider mb-2 flex items-center gap-2">
                         <CloudSun className="w-4 h-4"/> Conditions
@@ -225,40 +227,48 @@ const App: React.FC = () => {
                         <span>💧 {data.weather.precipitationProb}%</span>
                      </div>
                   </div>
-              ) : (
-                 <div className="bg-slate-800/60 border border-slate-700/60 p-6 rounded-2xl flex items-center justify-center text-slate-500 text-sm italic">
-                    No weather data
-                 </div>
               )}
 
             </section>
 
-            {/* --- SECTION: TERRAIN & STRATEGY GRID --- */}
+            {/* --- SECTION: TOP ROW (TERRAIN + MAP) --- */}
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
               
-              {/* Left Column: Elevation + Ribbon */}
-              <div className="xl:col-span-2 bg-slate-800/50 border border-slate-700/50 p-6 rounded-2xl shadow-xl flex flex-col">
-                 <div className="flex items-center justify-between mb-6">
+              {/* Left Column: Elevation Profile (Taller now) */}
+              <div className="xl:col-span-2 bg-slate-800/50 border border-slate-700/50 p-6 rounded-2xl shadow-xl flex flex-col h-[500px]">
+                 <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-2">
                         <Mountain className="w-5 h-5 text-slate-400" />
                         <h2 className="text-lg font-bold text-white uppercase tracking-wider">Terrain Profile</h2>
                     </div>
+                    {/* Smoothing Controls */}
+                    <div className="flex items-center gap-2 bg-slate-900/80 p-1 rounded-lg border border-slate-800">
+                        <span className="text-xs font-bold text-slate-500 uppercase px-2">Smooth</span>
+                        <select 
+                            value={smoothing}
+                            onChange={(e) => setSmoothing(e.target.value as SmoothingLevel)}
+                            className="bg-slate-800 text-xs text-white px-2 py-1 rounded outline-none border-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                        >
+                            <option value="raw">Raw Data</option>
+                            <option value="soft">Soft Smooth</option>
+                            <option value="strong">Big Smooth</option>
+                        </select>
+                    </div>
                   </div>
-                <div className="flex-1 w-full mb-4 min-h-[300px]">
+                <div className="flex-1 w-full relative">
                   <ElevationProfile 
                     rawData={data.rawPoints} 
                     units={data.units} 
                     onHover={setHoveredDist}
                     hoveredDist={hoveredDist}
+                    smoothing={smoothing}
+                    aidStations={data.aidStations}
                   />
-                </div>
-                <div className="h-16 w-full">
-                  <CourseDifficultyRibbon sectors={data.plan} units={data.units} />
                 </div>
               </div>
 
-               {/* Right Column: Map Visualizer (Tall) */}
-               <div className="xl:col-span-1 bg-slate-800/50 border border-slate-700/50 rounded-2xl shadow-xl overflow-hidden relative min-h-[400px]">
+               {/* Right Column: Map Visualizer */}
+               <div className="xl:col-span-1 bg-slate-800/50 border border-slate-700/50 rounded-2xl shadow-xl overflow-hidden relative h-[500px]">
                    <div className="absolute top-4 right-4 z-[400] bg-slate-900/90 border border-slate-700 rounded-lg p-1 shadow-lg">
                       <div className="flex items-center space-x-2 px-2 py-1 border-b border-slate-800 mb-1">
                           <Layers className="w-3 h-3 text-slate-400" />
@@ -282,11 +292,41 @@ const App: React.FC = () => {
                       units={data.units}
                       hoveredDist={hoveredDist}
                       onHover={setHoveredDist}
+                      aidStations={data.aidStations}
                    />
                </div>
+            </div>
 
-              {/* 2x2 Grid for Strategy Charts */}
-              <div className="xl:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* --- SECTION: ANALYTICS & LOGS (New) --- */}
+            <RouteInsights 
+                stats={data.stats} 
+                sectors={data.plan} 
+                units={data.units} 
+                targetTimeSeconds={data.targetTimeSeconds || 0}
+            />
+
+            {/* --- SECTION: DATA TABLE --- */}
+            <section className="pt-2">
+              <div className="flex items-center justify-between mb-6 pt-4 border-t border-slate-800 flex-wrap gap-4">
+                 <div className="flex items-center gap-2">
+                  <MapIcon className="w-6 h-6 text-slate-400" />
+                  <h2 className="text-2xl font-bold text-white">Sector Breakdown</h2>
+                 </div>
+                 
+                 {/* Updated Compact Legend */}
+                 <div className="flex flex-wrap gap-x-4 gap-y-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    <span className="flex items-center"><div className="w-2 h-2 rounded-full mr-1.5" style={{background:'#dc2626'}}></div> Steep Climb</span>
+                    <span className="flex items-center"><div className="w-2 h-2 rounded-full mr-1.5" style={{background:'#fb923c'}}></div> Climb</span>
+                    <span className="flex items-center"><div className="w-2 h-2 rounded-full mr-1.5" style={{background:'#60a5fa'}}></div> Flat</span>
+                    <span className="flex items-center"><div className="w-2 h-2 rounded-full mr-1.5" style={{background:'#34d399'}}></div> Descent</span>
+                    <span className="flex items-center"><div className="w-2 h-2 rounded-full mr-1.5" style={{background:'#0d9488'}}></div> Steep Desc</span>
+                 </div>
+              </div>
+              <SectorList sectors={data.plan} units={data.units} />
+            </section>
+
+            {/* --- SECTION: STRATEGY CHARTS --- */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-20">
                  {/* Chart 1 */}
                  <div className="bg-slate-800/50 border border-slate-700/50 p-6 rounded-2xl h-[400px] flex flex-col">
                     <h4 className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-4 flex items-center gap-2">
@@ -303,7 +343,6 @@ const App: React.FC = () => {
                       <TrendingUp className="w-4 h-4" /> Gradient Distribution
                     </h4>
                     <div className="flex-1 min-h-0">
-                      {/* We pass rawData now to allow dynamic sampling */}
                       <GradientDistributionChart rawData={data.rawPoints} units={data.units} />
                     </div>
                  </div>
@@ -327,25 +366,7 @@ const App: React.FC = () => {
                        <TimeBankChart sectors={data.plan} avgPaceSeconds={getAvgPaceSeconds()} units={data.units} />
                     </div>
                  </div>
-
-              </div>
             </div>
-
-            {/* --- SECTION: DATA TABLE --- */}
-            <section className="pb-20">
-              <div className="flex items-center justify-between mb-6 pt-8 border-t border-slate-800">
-                 <div className="flex items-center gap-2">
-                  <MapIcon className="w-6 h-6 text-slate-400" />
-                  <h2 className="text-2xl font-bold text-white">Sector Breakdown</h2>
-                 </div>
-                 <div className="hidden sm:flex gap-6 text-sm font-medium">
-                    <span className="flex items-center text-orange-400"><div className="w-2 h-2 bg-orange-400 rounded-full mr-2"></div> Uphill</span>
-                    <span className="flex items-center text-yellow-400"><div className="w-2 h-2 bg-yellow-400 rounded-full mr-2"></div> Flat/Mild</span>
-                    <span className="flex items-center text-emerald-400"><div className="w-2 h-2 bg-emerald-400 rounded-full mr-2"></div> Downhill</span>
-                 </div>
-              </div>
-              <SectorList sectors={data.plan} units={data.units} />
-            </section>
             
           </div>
         )}

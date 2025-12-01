@@ -65,6 +65,7 @@ export interface AnalysisResult {
 }
 
 export type MapMetric = 'gradient' | 'pace' | 'elevation' | 'bank' | 'fatigue';
+export type SmoothingLevel = 'raw' | 'soft' | 'strong';
 
 export enum AnalysisStatus {
   IDLE = 'IDLE',
